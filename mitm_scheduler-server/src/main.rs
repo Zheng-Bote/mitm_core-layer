@@ -103,6 +103,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let _ = writer.write_all(out.as_bytes()).await;
                                 }
                             }
+                            Ok(SchedulerRequest::ExecuteJob(job_id)) => {
+                                log::info!("API requested ExecuteJob for job {}", job_id);
+                                // The job execution would be dispatched to orchestrator here
+                            }
+                            Ok(SchedulerRequest::StopJob(job_id)) => {
+                                log::info!("API requested StopJob for job {}", job_id);
+                            }
+                            Ok(SchedulerRequest::UpdateJobs) => {
+                                log::info!("API requested UpdateJobs, reloading scheduler config");
+                            }
                             Err(e) => {
                                 log::error!("Invalid Job Status JSON: {}", e);
                             }

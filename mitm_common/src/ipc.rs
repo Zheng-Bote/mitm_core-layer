@@ -62,6 +62,12 @@ pub enum SchedulerRequest {
     Audit(AuditEvent),
     #[serde(rename = "get_credentials")]
     GetCredentials(GetCredentialsRequest),
+    #[serde(rename = "execute_job")]
+    ExecuteJob(i32),
+    #[serde(rename = "stop_job")]
+    StopJob(i32),
+    #[serde(rename = "update_jobs")]
+    UpdateJobs,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

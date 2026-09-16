@@ -30,7 +30,7 @@ pub struct ErrorResponse {
 
 pub fn configure_routes() -> Router<AppState> {
     Router::new()
-        .nest("/admin/action", admin::routes())
+        .nest("/admin", admin::routes())
         .nest("/admin/jobs", jobs::routes())
         .nest("/admin/rbac", rbac::routes())
         .nest("/admin/logs", logs::routes())
