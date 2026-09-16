@@ -11,3 +11,9 @@ keywords = ["mitm-3", "core-layer", "scheduler-server"]
 
 [dependencies]
 mitm_common = { path = "../mitm_common" }
+tokio = { version = "1.0", features = ["full"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.10"

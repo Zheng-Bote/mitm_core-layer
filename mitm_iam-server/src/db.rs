@@ -31,10 +31,10 @@ impl Repository {
     }
 
     pub async fn get_admin_role_id(&self) -> Result<Option<i32>, Box<dyn Error>> {
-        let record = sqlx::query!("SELECT id FROM roles WHERE name = 'ADMIN'")
+        let record: Option<(i32,)> = sqlx::query_as("SELECT id FROM roles WHERE name = 'ADMIN'")
             .fetch_optional(&self.pool)
             .await?;
-        Ok(record.map(|r| r.id))
+        Ok(record.map(|r| r.0))
     }
 
     pub async fn create_user(&self, username: &str, password: &str) -> Result<i32, Box<dyn Error>> {
@@ -44,45 +44,46 @@ impl Repository {
         let hash = crypto::derive_key(password.as_bytes(), &salt)?;
         let hash_str = format!("{}:{}", BASE64.encode(salt), BASE64.encode(hash));
 
-        let record = sqlx::query!(
+        let record: (i32,) = sqlx::query_as(
             "INSERT INTO admin_users (username, password_hash, is_active) VALUES ($1, $2, true) RETURNING id",
-            username,
-            hash_str
         )
+        .bind(username)
+        .bind(hash_str)
         .fetch_one(&self.pool)
         .await?;
         
-        Ok(record.id)
+        Ok(record.0)
     }
 
     pub async fn assign_role(&self, user_id: i32, role_id: i32) -> Result<(), Box<dyn Error>> {
-        sqlx::query!(
+        sqlx::query(
             "INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            user_id,
-            role_id
         )
+        .bind(user_id)
+        .bind(role_id)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_user_id(&self, username: &str) -> Result<Option<i32>, Box<dyn Error>> {
-        let record = sqlx::query!("SELECT id FROM admin_users WHERE username = $1", username)
+        let record: Option<(i32,)> = sqlx::query_as("SELECT id FROM admin_users WHERE username = $1")
+            .bind(username)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(record.map(|r| r.id))
+        Ok(record.map(|r| r.0))
     }
 
     pub async fn check_password(&self, username: &str, password: &str) -> Result<bool, Box<dyn Error>> {
-        let record = sqlx::query!(
+        let record: Option<(String,)> = sqlx::query_as(
             "SELECT password_hash FROM admin_users WHERE username = $1 AND is_active = true",
-            username
         )
+        .bind(username)
         .fetch_optional(&self.pool)
         .await?;
 
         if let Some(row) = record {
-            let parts: Vec<&str> = row.password_hash.split(':').collect();
+            let parts: Vec<&str> = row.0.split(':').collect();
             if parts.len() != 2 {
                 return Ok(false);
             }

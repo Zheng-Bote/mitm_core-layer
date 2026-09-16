@@ -29,3 +29,20 @@ pub enum IpcResponse {
     #[serde(rename = "error")]
     Error(String),
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusEvent {
+    pub run_id: i32,
+    #[serde(rename = "type")]
+    pub event_type: String, // "status" or "audit"
+    pub component: String,
+    pub status: String,
+    pub message: String,
+    pub progress: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialsResponse {
+    pub master_key: String,
+    pub db_config_json: String,
+}
