@@ -25,8 +25,10 @@ impl JobOrchestrator {
     pub async fn run_job(&self, program: ScheduledProgram) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut running = self.running_jobs.lock().await;
         if running.contains(&program.id) {
-            log::info!("Job {} is already running, skipping execution.", program.name);
-            let _ = self.repo.log_job_event(0, "Scheduler", "INFO", &format!("Job {} is already running, skipping execution", program.name)).await;
+            let msg = format!("Job {} is already running, skipping execution", program.name);
+            log::info!("{}", msg);
+            let _ = self.repo.log_system("WARN", "Scheduler", &msg).await;
+            let _ = self.repo.log_job_audit(0, "Scheduler", &msg).await;
             return Ok(());
         }
         running.insert(program.id);
@@ -42,13 +44,14 @@ impl JobOrchestrator {
                 Err(e) => {
                     let err_msg = format!("Failed to create run for {}: {}", program.name, e);
                     log::error!("{}", err_msg);
+                    let _ = repo.log_system("ERROR", "Scheduler", &err_msg).await;
                     running_jobs.lock().await.remove(&program.id);
                     return;
                 }
             };
 
             log::info!("Starting job {} (RunID: {})", program.name, run_id);
-            let _ = repo.log_job_event(run_id, "Scheduler", "INFO", &format!("Starting job {}", program.name)).await;
+            let _ = repo.log_system("INFO", "Scheduler", &format!("Starting job {}", program.name)).await;
 
             let args_json = program.args.unwrap_or_else(|| "{}".to_string());
             let mut cmd = Command::new(&program.command);
@@ -56,7 +59,6 @@ impl JobOrchestrator {
             cmd.stdout(Stdio::piped());
             cmd.stderr(Stdio::piped());
             
-            // Environment filtering
             let whitelist = ["PATH", "SYSTEMROOT", "USERPROFILE", "HOME", "TEMP", "TMP"];
             cmd.env_clear();
             for (key, val) in env::vars() {
@@ -72,15 +74,17 @@ impl JobOrchestrator {
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
-                    log::error!("Failed to spawn {}: {}", program.command, e);
+                    let err_msg = format!("Failed to spawn {}: {}", program.command, e);
+                    log::error!("{}", err_msg);
                     let _ = repo.update_program_run(run_id, -1, false, 0).await;
-                    let _ = repo.log_job_event(run_id, "Scheduler", "ERROR", &format!("Failed to spawn {}: {}", program.command, e)).await;
+                    let _ = repo.log_system("ERROR", "Scheduler", &err_msg).await;
                     running_jobs.lock().await.remove(&program.id);
                     return;
                 }
             };
 
             let pid = child.id().unwrap_or(0);
+            let _ = repo.log_system("DEBUG", "Scheduler", &format!("Job {} started (RunID {}, PID {})", program.name, run_id, pid)).await;
             
             let status = match child.wait().await {
                 Ok(s) => s,

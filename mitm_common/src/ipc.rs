@@ -33,12 +33,33 @@ pub enum IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusEvent {
     pub run_id: i32,
-    #[serde(rename = "type")]
-    pub event_type: String, // "status" or "audit"
     pub component: String,
     pub status: String,
     pub message: String,
     pub progress: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub run_id: i32,
+    pub component: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetCredentialsRequest {
+    pub run_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SchedulerRequest {
+    #[serde(rename = "status")]
+    Status(StatusEvent),
+    #[serde(rename = "audit")]
+    Audit(AuditEvent),
+    #[serde(rename = "get_credentials")]
+    GetCredentials(GetCredentialsRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

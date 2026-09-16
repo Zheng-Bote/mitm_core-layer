@@ -50,23 +50,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cron_scheduler.start().await;
     });
 
+    let master_key_str = password.clone();
+    let db_config_json = serde_json::to_string(&config.db).unwrap_or_else(|_| "{}".to_string());
+
     loop {
         match listener.accept().await {
             Ok((mut stream, _)) => {
                 let repo = repo.clone();
+                let mk = master_key_str.clone();
+                let db_cfg = db_config_json.clone();
                 tokio::spawn(async move {
-                    let (reader, _writer) = stream.split();
+                    let (reader, mut writer) = stream.split();
                     let mut reader = BufReader::new(reader);
                     let mut line = String::new();
 
                     while let Ok(bytes) = reader.read_line(&mut line).await {
                         if bytes == 0 { break; }
                         
-                        match serde_json::from_str::<StatusEvent>(&line) {
-                            Ok(event) => {
+                        use mitm_common::ipc::SchedulerRequest;
+                        match serde_json::from_str::<SchedulerRequest>(&line) {
+                            Ok(SchedulerRequest::Status(event)) => {
                                 log::info!("Job Event [Run {}]: {} - {}", event.run_id, event.status, event.message);
-                                if let Err(e) = repo.log_job_event(event.run_id, &event.component, &event.status, &event.message).await {
+                                if let Err(e) = repo.log_job_event(event.run_id, &event.status, &event.message, event.progress).await {
                                     log::error!("Failed to log event to DB: {}", e);
+                                }
+                            }
+                            Ok(SchedulerRequest::Audit(event)) => {
+                                log::info!("AUDIT [Run {}]: {} - {}", event.run_id, event.component, event.message);
+                                if let Err(e) = repo.log_job_audit(event.run_id, &event.component, &event.message).await {
+                                    log::error!("Failed to log audit event to DB: {}", e);
+                                }
+                            }
+                            Ok(SchedulerRequest::GetCredentials(req)) => {
+                                use mitm_common::ipc::CredentialsResponse;
+                                use tokio::io::AsyncWriteExt;
+                                log::info!("GetCredentials [Run {}]", req.run_id);
+                                let resp = CredentialsResponse {
+                                    master_key: mk.clone(),
+                                    db_config_json: db_cfg.clone(),
+                                };
+                                if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                    let mut out = resp_json;
+                                    out.push('\n');
+                                    let _ = writer.write_all(out.as_bytes()).await;
                                 }
                             }
                             Err(e) => {

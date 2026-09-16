@@ -27,21 +27,46 @@ impl Repository {
         Ok(Self { pool })
     }
 
-    pub async fn log_job_event(&self, run_id: i32, component: &str, status: &str, message: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn log_system(&self, level: &str, component: &str, message: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query(
-            "INSERT INTO system_logs (run_id, component, log_level, message) VALUES ($1, $2, 'INFO', $3)",
+            "INSERT INTO system_logs (level, component, message) VALUES ($1, $2, $3)",
+        )
+        .bind(level)
+        .bind(component)
+        .bind(message)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn log_job_event(&self, run_id: i32, status: &str, message: &str, progress: i32) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query(
+            "INSERT INTO job_status_events (run_id, status, message, progress) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(run_id)
+        .bind(status)
+        .bind(message)
+        .bind(progress)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn log_job_audit(&self, run_id: i32, component: &str, message: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query(
+            "INSERT INTO job_audit_logs (run_id, component, message) VALUES ($1, $2, $3)",
         )
         .bind(run_id)
         .bind(component)
-        .bind(format!("[{}] {}", status, message))
+        .bind(message)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_enabled_programs(&self) -> Result<Vec<ScheduledProgram>, Box<dyn Error + Send + Sync>> {
-        let records: Vec<(i32, String, String, String, Option<String>)> = sqlx::query_as(
-            "SELECT id, name, command, cron_expr, args FROM programs WHERE is_enabled = true",
+        let records: Vec<(i32, String, String, Option<String>, String, bool)> = sqlx::query_as(
+            "SELECT id, name, command, args, cron_expr, enabled FROM scheduled_programs WHERE enabled = true",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -50,8 +75,8 @@ impl Repository {
             id: r.0,
             name: r.1,
             command: r.2,
-            cron_expr: r.3,
-            args: r.4,
+            args: r.3,
+            cron_expr: r.4,
         }).collect();
 
         Ok(programs)
@@ -59,7 +84,7 @@ impl Repository {
 
     pub async fn create_program_run(&self, program_id: i32) -> Result<i32, Box<dyn Error + Send + Sync>> {
         let record: (i32,) = sqlx::query_as(
-            "INSERT INTO program_runs (program_id, start_time, status) VALUES ($1, CURRENT_TIMESTAMP, 'RUNNING') RETURNING id",
+            "INSERT INTO program_runs (program_id, pid, started_at) VALUES ($1, 0, CURRENT_TIMESTAMP) RETURNING id",
         )
         .bind(program_id)
         .fetch_one(&self.pool)
@@ -68,12 +93,11 @@ impl Repository {
     }
 
     pub async fn update_program_run(&self, run_id: i32, exit_code: i32, success: bool, pid: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let status = if success { "SUCCESS" } else { "FAILED" };
         sqlx::query(
-            "UPDATE program_runs SET end_time = CURRENT_TIMESTAMP, exit_code = $1, status = $2, pid = $3 WHERE id = $4",
+            "UPDATE program_runs SET finished_at = CURRENT_TIMESTAMP, exit_code = $1, success = $2, pid = $3 WHERE id = $4",
         )
         .bind(exit_code)
-        .bind(status)
+        .bind(success)
         .bind(pid as i32)
         .bind(run_id)
         .execute(&self.pool)
