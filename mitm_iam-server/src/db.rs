@@ -49,7 +49,7 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn create_user(&self, username: &str, password: &str) -> Result<i32, Box<dyn Error + Send + Sync>> {
+    pub async fn create_user(&self, username: &str, password: &str) -> Result<i32, Box<dyn Error>> {
         let mut salt = [0u8; 16];
         OsRng.fill_bytes(&mut salt);
         

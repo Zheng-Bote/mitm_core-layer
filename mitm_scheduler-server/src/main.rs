@@ -9,9 +9,11 @@ use tokio::net::UnixListener;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use std::sync::Arc;
 use mitm_common::config::load_config;
-use mitm_common::ipc::StatusEvent;
 use crate::job_runner::JobOrchestrator;
 use crate::scheduler::CronScheduler;
+
+const APP_NAME: &str = "MitM Scheduler Server";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -47,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Scheduler listening for Job events on UDS {:?}", socket_path);
 
     let repo = Arc::new(repo);
-    let _ = repo.log_system("INFO", "scheduler-server", "Starting mitm_scheduler-server v1.0.0").await;
+    let _ = repo.log_system("INFO", "scheduler-server", &format!("Starting {} v{}", APP_NAME, VERSION)).await;
     let socket_path_str = socket_path.to_string_lossy().to_string();
     let orchestrator = Arc::new(JobOrchestrator::new(repo.clone(), socket_path_str));
     let cron_scheduler = CronScheduler::new(repo.clone(), orchestrator.clone());

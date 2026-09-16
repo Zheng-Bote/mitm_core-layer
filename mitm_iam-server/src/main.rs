@@ -9,6 +9,9 @@ use mitm_common::config::{load_config, DBConfig};
 use mitm_common::ipc::{IpcRequest, IpcResponse, AuthResponse};
 use subtle::ConstantTimeEq;
 
+const APP_NAME: &str = "MitM IAM Server";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -32,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     db::bootstrap_admins(&repo, &config).await;
 
     // Log startup
-    let _ = repo.log_system("INFO", "iam-server", "Starting mitm_iam-server v1.0.0").await;
+    let _ = repo.log_system("INFO", "iam-server", &format!("Starting {} v{}", APP_NAME, VERSION)).await;
 
     // Ensure socket directory exists
     let socket_dir = PathBuf::from(&config.socket_dir);

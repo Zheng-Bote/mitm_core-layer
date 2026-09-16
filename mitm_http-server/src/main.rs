@@ -39,6 +39,9 @@ struct AdminActionResponse {
     message: String,
 }
 
+const APP_NAME: &str = "MitM HTTP Gateway";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -78,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "payload": {
                 "level": "INFO",
                 "component": "http-server",
-                "message": "Starting mitm_http-server v1.0.0"
+                "message": format!("Starting {} v{}", APP_NAME, VERSION)
             }
         });
 
