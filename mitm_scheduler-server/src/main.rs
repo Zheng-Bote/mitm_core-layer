@@ -1,13 +1,17 @@
 mod db;
 mod job_runner;
+mod scheduler;
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use tokio::net::UnixListener;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use std::sync::Arc;
 use mitm_common::config::load_config;
 use mitm_common::ipc::StatusEvent;
+use crate::job_runner::JobOrchestrator;
+use crate::scheduler::CronScheduler;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let repo = db::Repository::new(&config).await?;
+    let repo = db::Repository::new(&config).await.map_err(|e| e as Box<dyn std::error::Error>)?;
     log::info!("Scheduler connected to PostgreSQL at {}:{}", config.db.host, config.db.port);
 
     let socket_path = PathBuf::from("/tmp/mitm.sock");
@@ -37,7 +41,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = UnixListener::bind(&socket_path)?;
     log::info!("Scheduler listening for Job events on UDS {:?}", socket_path);
 
-    let repo = std::sync::Arc::new(repo);
+    let repo = Arc::new(repo);
+    let socket_path_str = socket_path.to_string_lossy().to_string();
+    let orchestrator = Arc::new(JobOrchestrator::new(repo.clone(), socket_path_str));
+    let cron_scheduler = CronScheduler::new(repo.clone(), orchestrator.clone());
+
+    tokio::spawn(async move {
+        cron_scheduler.start().await;
+    });
 
     loop {
         match listener.accept().await {
