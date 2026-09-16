@@ -47,14 +47,13 @@ pub struct DBConfig {
     pub ssl_cert: String,
     #[serde(default)]
     pub ssl_key: String,
-    #[serde(default = "default_socket_dir")]
+    #[serde(default)]
     pub socket_dir: String,
 }
 
 fn default_log_level() -> String { "INFO".to_string() }
 fn default_http_port() -> u16 { 8443 }
 fn default_use_https() -> bool { true }
-fn default_socket_dir() -> String { "/var/run".to_string() }
 
 fn get_env_str(key: &str, default_val: &str) -> String {
     env::var(key).unwrap_or_else(|_| default_val.to_string())
@@ -107,7 +106,7 @@ fn load_from_env(exe_dir: &Path) -> DBConfig {
         use_https: get_env_bool("MITM_USE_HTTPS", true),
         ssl_cert: get_env_str("MITM_SSL_CERT", get_env_str("MITM_SSL_CRT", exe_dir.join("certs").join("server.crt").to_string_lossy().as_ref()).as_ref()),
         ssl_key: get_env_str("MITM_SSL_KEY", exe_dir.join("certs").join("server.key").to_string_lossy().as_ref()),
-        socket_dir: get_env_str("MITM_SOCKET_DIR", "/var/run"),
+        socket_dir: get_env_str("MITM_SOCKET_DIR", ""),
     };
 
     let ssl_mode_str = get_env_str("MITM_DB_SSLMODE", "").to_lowercase();
@@ -154,7 +153,7 @@ fn apply_internal_defaults(exe_dir: &Path) -> DBConfig {
         use_https: true,
         ssl_cert: exe_dir.join("certs").join("server.crt").to_string_lossy().to_string(),
         ssl_key: exe_dir.join("certs").join("server.key").to_string_lossy().to_string(),
-        socket_dir: "/var/run".to_string(),
+        socket_dir: "".to_string(),
     }
 }
 
@@ -204,6 +203,13 @@ fn apply_certificate_fallback(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
     cfg
 }
 
+fn apply_socket_fallback(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
+    if cfg.socket_dir.is_empty() {
+        cfg.socket_dir = exe_dir.join("run").to_string_lossy().to_string();
+    }
+    cfg
+}
+
 pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, Box<dyn Error>> {
     let exe_path = env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
     let exe_dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
@@ -213,7 +219,7 @@ pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, 
         if !path.is_empty() {
             if let Ok(cfg) = load_encrypted_config(path, password) {
                 log::info!("Loaded config from parameter: {}", path);
-                return Ok(apply_certificate_fallback(cfg, exe_dir));
+                return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
             }
             log::warn!("Failed to load config from parameter {}. Falling back.", path);
         }
@@ -223,26 +229,26 @@ pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, 
     let default_path = exe_dir.join("config.enc");
     if let Ok(cfg) = load_encrypted_config(&default_path.to_string_lossy(), password) {
         log::info!("Loaded config from default path: {:?}", default_path);
-        return Ok(apply_certificate_fallback(cfg, exe_dir));
+        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
     }
 
     let fallback_path = exe_dir.join("cfg").join("config.enc");
     if let Ok(cfg) = load_encrypted_config(&fallback_path.to_string_lossy(), password) {
         log::info!("Loaded config from fallback path: {:?}", fallback_path);
-        return Ok(apply_certificate_fallback(cfg, exe_dir));
+        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
     }
 
     // 3. Try ENVs if required ENV (MITM_DB_HOST) is present
     if !get_env_str("MITM_DB_HOST", "").is_empty() {
         let cfg = load_from_env(exe_dir);
         log::info!("Loaded config from Environment Variables.");
-        return Ok(apply_certificate_fallback(cfg, exe_dir));
+        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
     }
 
     // 4. Fallback to internal defaults
     log::warn!("No config file or ENVs found. Falling back to internal defaults.");
     let cfg = apply_internal_defaults(exe_dir);
-    Ok(apply_certificate_fallback(cfg, exe_dir))
+    Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir))
 }
 
 #[cfg(test)]
