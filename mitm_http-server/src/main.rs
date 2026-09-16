@@ -14,9 +14,16 @@ use mitm_common::config::load_config;
 use std::net::SocketAddr;
 
 #[derive(Serialize)]
+struct JsonApiError {
+    status: String,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[derive(Serialize)]
 struct ErrorResponse {
-    error: String,
-    code: u16,
+    errors: Vec<JsonApiError>,
 }
 
 #[derive(Deserialize)]
@@ -105,8 +112,11 @@ async fn auth_middleware(mut request: axum::extract::Request, next: Next) -> Res
     }
 
     let err_resp = ErrorResponse {
-        error: "Unauthorized".to_string(),
-        code: 401,
+        errors: vec![JsonApiError {
+            status: "401".to_string(),
+            title: "Unauthorized".to_string(),
+            detail: Some("Missing or invalid authorization credentials.".to_string()),
+        }],
     };
     
     (StatusCode::UNAUTHORIZED, Json(err_resp)).into_response()
