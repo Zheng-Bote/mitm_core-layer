@@ -37,7 +37,19 @@ impl Repository {
         Ok(record.map(|r| r.0))
     }
 
-    pub async fn create_user(&self, username: &str, password: &str) -> Result<i32, Box<dyn Error>> {
+    pub async fn log_system(&self, level: &str, component: &str, message: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query(
+            "INSERT INTO system_logs (level, component, message) VALUES ($1, $2, $3)",
+        )
+        .bind(level)
+        .bind(component)
+        .bind(message)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn create_user(&self, username: &str, password: &str) -> Result<i32, Box<dyn Error + Send + Sync>> {
         let mut salt = [0u8; 16];
         OsRng.fill_bytes(&mut salt);
         

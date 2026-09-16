@@ -19,6 +19,8 @@ pub struct AuthResponse {
 pub enum IpcRequest {
     #[serde(rename = "authenticate")]
     Authenticate(AuthRequest),
+    #[serde(rename = "log_system")]
+    LogSystem { level: String, component: String, message: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

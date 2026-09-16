@@ -33,7 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo = db::Repository::new(&config).await.map_err(|e| e as Box<dyn std::error::Error>)?;
     log::info!("Scheduler connected to PostgreSQL at {}:{}", config.db.host, config.db.port);
 
-    let socket_path = PathBuf::from("/tmp/mitm.sock");
+    let socket_dir = PathBuf::from(&config.socket_dir);
+    if !socket_dir.exists() {
+        fs::create_dir_all(&socket_dir)?;
+    }
+
+    let socket_path = socket_dir.join("mitm_scheduler.sock");
     if socket_path.exists() {
         fs::remove_file(&socket_path)?;
     }
@@ -42,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Scheduler listening for Job events on UDS {:?}", socket_path);
 
     let repo = Arc::new(repo);
+    let _ = repo.log_system("INFO", "scheduler-server", "Starting mitm_scheduler-server v1.0.0").await;
     let socket_path_str = socket_path.to_string_lossy().to_string();
     let orchestrator = Arc::new(JobOrchestrator::new(repo.clone(), socket_path_str));
     let cron_scheduler = CronScheduler::new(repo.clone(), orchestrator.clone());

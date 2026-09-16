@@ -31,7 +31,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     db::bootstrap_admins(&repo, &config).await;
 
-    let socket_path = PathBuf::from("/tmp/mitm_iam.sock");
+    // Log startup
+    let _ = repo.log_system("INFO", "iam-server", "Starting mitm_iam-server v1.0.0").await;
+
+    // Ensure socket directory exists
+    let socket_dir = PathBuf::from(&config.socket_dir);
+    if !socket_dir.exists() {
+        fs::create_dir_all(&socket_dir)?;
+    }
+
+    let socket_path = socket_dir.join("mitm_iam.sock");
     if socket_path.exists() {
         fs::remove_file(&socket_path)?;
     }
@@ -55,16 +64,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     while let Ok(bytes) = reader.read_line(&mut line).await {
                         if bytes == 0 { break; }
                         
-                        let response = match serde_json::from_str::<IpcRequest>(&line) {
-                            Ok(IpcRequest::Authenticate(req)) => {
-                                handle_authenticate(req, &config, &repo).await
+                        match serde_json::from_str::<IpcRequest>(&line) {
+                            Ok(IpcRequest::LogSystem { level, component, message }) => {
+                                if let Err(e) = repo.log_system(&level, &component, &message).await {
+                                    log::error!("Failed to save LogSystem IPC: {}", e);
+                                }
                             }
-                            Err(e) => IpcResponse::Error(format!("Invalid IPC JSON: {}", e))
+                            Ok(IpcRequest::Authenticate(req)) => {
+                                let response = handle_authenticate(req, &config, &repo).await;
+                                if let Ok(resp_json) = serde_json::to_string(&response) {
+                                    let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                }
+                            }
+                            Err(e) => {
+                                let response = IpcResponse::Error(format!("Invalid IPC JSON: {}", e));
+                                if let Ok(resp_json) = serde_json::to_string(&response) {
+                                    let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                }
+                            }
                         };
-
-                        if let Ok(resp_json) = serde_json::to_string(&response) {
-                            let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
-                        }
                         line.clear();
                     }
                 });

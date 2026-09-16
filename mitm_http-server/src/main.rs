@@ -55,10 +55,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let config_clone = config.clone();
+    let auth_layer = axum::middleware::from_fn(move |req, next| {
+        ipc_client::auth_middleware(req, next, config_clone.clone())
+    });
+
     let app = Router::new()
         .route("/admin/action", post(handle_admin_action))
         .route("/admin/rbac/os_user_roles", get(handle_get_roles))
-        .route_layer(middleware::from_fn(auth_middleware));
+        .layer(auth_layer);
+        
+    let socket_dir = std::path::PathBuf::from(&config.socket_dir);
+    let socket_path = socket_dir.join("mitm_iam.sock");
+
+    // Log startup via IPC to iam-server
+    tokio::spawn(async move {
+        use tokio::net::UnixStream;
+        use tokio::io::AsyncWriteExt;
+
+        let req = serde_json::json!({
+            "action": "log_system",
+            "payload": {
+                "level": "INFO",
+                "component": "http-server",
+                "message": "Starting mitm_http-server v1.0.0"
+            }
+        });
+
+        if let Ok(mut stream) = UnixStream::connect(&socket_path).await {
+            let mut out = serde_json::to_string(&req).unwrap_or_default();
+            out.push('\n');
+            let _ = stream.write_all(out.as_bytes()).await;
+        }
+    });
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.http_port));
     
@@ -79,47 +108,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
-
-async fn auth_middleware(mut request: axum::extract::Request, next: Next) -> Response {
-    let mut extracted_creds = None;
-    if let Some(auth_header) = request.headers().get("authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if auth_str.starts_with("Basic ") {
-                let encoded = &auth_str[6..];
-                if let Ok(decoded) = BASE64.decode(encoded) {
-                    if let Ok(credentials) = String::from_utf8(decoded) {
-                        let parts: Vec<&str> = credentials.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            extracted_creds = Some((parts[0].to_string(), parts[1].to_string()));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if let Some((username, token)) = extracted_creds {
-        match ipc_client::authenticate_via_ipc(&username, &token).await {
-            Ok(auth_result) if auth_result.success => {
-                request.extensions_mut().insert(auth_result);
-                return next.run(request).await;
-            }
-            _ => {
-                // Fall through to unauthorized
-            }
-        }
-    }
-
-    let err_resp = ErrorResponse {
-        errors: vec![JsonApiError {
-            status: "401".to_string(),
-            title: "Unauthorized".to_string(),
-            detail: Some("Missing or invalid authorization credentials.".to_string()),
-        }],
-    };
-    
-    (StatusCode::UNAUTHORIZED, Json(err_resp)).into_response()
 }
 
 async fn handle_admin_action(
