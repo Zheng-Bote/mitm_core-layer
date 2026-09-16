@@ -1,43 +1,11 @@
 mod ipc_client;
-
+mod db;
+mod handlers;
 use std::env;
-use axum::{
-    routing::{get, post},
-    Router, Json, http::StatusCode,
-    middleware::{self, Next},
-    response::{IntoResponse, Response},
-};
 use axum_server::tls_rustls::RustlsConfig;
-use serde::{Deserialize, Serialize};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use mitm_common::config::load_config;
 use std::net::SocketAddr;
 
-#[derive(Serialize)]
-struct JsonApiError {
-    status: String,
-    title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    detail: Option<String>,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    errors: Vec<JsonApiError>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AdminActionPayload {
-    action: String,
-    details: serde_json::Value,
-}
-
-#[derive(Serialize)]
-struct AdminActionResponse {
-    success: bool,
-    message: String,
-}
 
 const APP_NAME: &str = "MitM HTTP Gateway";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -63,10 +31,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ipc_client::auth_middleware(req, next, config_clone.clone())
     });
 
-    let app = Router::new()
-        .route("/admin/action", post(handle_admin_action))
-        .route("/admin/rbac/os_user_roles", get(handle_get_roles))
-        .layer(auth_layer);
+    let repo = std::sync::Arc::new(db::Repository::new(&config).await?);
+    let app_state = handlers::AppState { repo };
+
+    let app = handlers::configure_routes()
+        .layer(auth_layer)
+        .with_state(app_state);
         
     let socket_dir = std::path::PathBuf::from(&config.socket_dir);
     let socket_path = socket_dir.join("mitm_iam.sock");
@@ -111,27 +81,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
-
-async fn handle_admin_action(
-    axum::extract::Extension(user): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
-    Json(payload): Json<AdminActionPayload>,
-) -> impl IntoResponse {
-    log::info!("User {} performed action: {}", user.username, payload.action);
-    (StatusCode::OK, Json(AdminActionResponse { success: true, message: "Action logged".to_string() }))
-}
-
-#[derive(Deserialize)]
-struct RolesQuery {
-    os_user: String,
-}
-
-async fn handle_get_roles(
-    axum::extract::Extension(user): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
-    axum::extract::Query(query): axum::extract::Query<RolesQuery>,
-) -> impl IntoResponse {
-    log::info!("Fetching roles for os_user: {} requested by {}", query.os_user, user.username);
-    // In a full implementation, we'd query the DB for the roles of `os_user`.
-    // For now, return a placeholder as the Go version would.
-    (StatusCode::OK, Json(vec!["ADMIN".to_string()]))
 }
