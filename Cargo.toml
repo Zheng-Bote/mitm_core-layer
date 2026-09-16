@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "mitm_common",
+    "mitm_http-server",
+    "mitm_iam-server",
+    "mitm_scheduler-server"
+]
+resolver = "2"

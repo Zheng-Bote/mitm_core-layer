@@ -1,0 +1,13 @@
+[package]
+name = "mitm-iam-server"
+version = "1.0.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "MitM Identity and Access Management server (RBAC/ABAC) - core layer"
+homepage = "https://github.com/Zheng-Bote/mitm-3"
+repository = "https://github.com/Zheng-Bote/mitm-3/release/latest"
+documentation = "https://github.com/Zheng-Bote/mitm-3/docs"
+keywords = ["mitm-3", "core-layer", "iam-server"]
+
+[dependencies]
+mitm_common = { path = "../mitm_common" }
