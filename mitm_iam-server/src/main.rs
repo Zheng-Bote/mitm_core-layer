@@ -112,26 +112,31 @@ async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConf
     }
 
     // 2. DB Fallback Check
-    match repo.check_password(&req.username, &req.token).await {
-        Ok(true) => {
-            IpcResponse::AuthenticateResult(AuthResponse {
-                success: true,
-                username: req.username,
-                roles: vec!["ADMIN".to_string()], // In a full implementation, we'd fetch actual roles
-                error_message: None,
-            })
-        }
-        Ok(false) => {
-            IpcResponse::AuthenticateResult(AuthResponse {
-                success: false,
-                username: req.username,
-                roles: vec![],
-                error_message: Some("Invalid credentials".to_string()),
-            })
-        }
+    let is_valid = match repo.check_password(&req.username, &req.token).await {
+        Ok(valid) => valid,
         Err(e) => {
             log::error!("Database check error: {}", e);
-            IpcResponse::Error("Internal authentication error".to_string())
+            return IpcResponse::Error("Internal authentication error".to_string());
         }
+    };
+
+    if is_valid {
+        let roles = repo.get_user_roles(&req.username).await.unwrap_or_else(|e| {
+            log::error!("Failed to fetch roles for {}: {}", req.username, e);
+            vec![]
+        });
+        IpcResponse::AuthenticateResult(AuthResponse {
+            success: true,
+            username: req.username,
+            roles,
+            error_message: None,
+        })
+    } else {
+        IpcResponse::AuthenticateResult(AuthResponse {
+            success: false,
+            username: req.username,
+            roles: vec![],
+            error_message: Some("Invalid credentials".to_string()),
+        })
     }
 }

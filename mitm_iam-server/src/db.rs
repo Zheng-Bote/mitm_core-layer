@@ -115,6 +115,23 @@ impl Repository {
         }
         Ok(false)
     }
+
+    pub async fn get_user_roles(&self, username: &str) -> Result<Vec<String>, Box<dyn Error>> {
+        let records: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT r.name 
+            FROM roles r 
+            JOIN user_roles ur ON r.id = ur.role_id 
+            JOIN admin_users u ON u.id = ur.user_id 
+            WHERE u.username = $1 AND u.is_active = true
+            "#
+        )
+        .bind(username)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(records.into_iter().map(|r| r.0).collect())
+    }
 }
 
 pub async fn bootstrap_admins(repo: &Repository, config: &DBConfig) {
