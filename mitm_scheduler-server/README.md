@@ -30,3 +30,17 @@ C4Component
 
     Rel(db_layer, db, "Executes queries", "TCP/SQLx")
 ```
+
+## Configuration
+
+The Scheduler Server relies on the following environment variables:
+
+- `MITM_DB_URL` (optional): PostgreSQL Connection String. Overrides the `.enc` config.
+- `MASTER_KEY` (required): Passed via IPC to the HTTP Server during startup handshakes if needed, though primarily managed by IAM.
+- `SCHEDULER_SOCKET_PATH` (optional): Override the Unix Domain Socket path (defaults to `/tmp/mitm_scheduler.sock`).
+
+## Execution
+
+```bash
+cargo run -p mitm-scheduler-server
+```
