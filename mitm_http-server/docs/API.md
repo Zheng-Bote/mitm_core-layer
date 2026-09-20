@@ -77,9 +77,9 @@ Endpoints for fetching execution history and compliance logs.
 
 | Method | Endpoint | Description | Auth Required | Expected Returns |
 | :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/admin/logs/system` | Fetch general system output logs | Yes (Admin) | `200 OK` (Log Array) |
-| `GET` | `/admin/logs/job-audit` | Fetch job execution audit logs | Yes (User/Admin) | `200 OK` (Audit Records) |
-| `GET` | `/admin/logs/admin-audit`| Fetch administrative action audit logs | Yes (Admin) | `200 OK` (Audit Records) |
+| `GET` | `/admin/logs/system` <br> `/admin/logs/system_bin` | Fetch general system output logs | Yes (Admin) | `200 OK` (Log Array) |
+| `GET` | `/admin/logs/job-audit` <br> `/admin/logs/job-audit_bin` | Fetch job execution audit logs | Yes (User/Admin) | `200 OK` (Audit Records) |
+| `GET` | `/admin/logs/admin-audit`<br>`/admin/logs/admin-audit_bin`| Fetch administrative action audit logs | Yes (Admin) | `200 OK` (Audit Records) |
 
 ### Theme: Data Transformation & Mapping
 Endpoints for managing rules that map Source systems to Target SaaS solutions.
@@ -91,7 +91,7 @@ Endpoints for managing rules that map Source systems to Target SaaS solutions.
 | `GET` | `/admin/transformation/rules` | Fetch transformation mapping rules | Yes (User/Admin) | `200 OK` (Rules Array) |
 | `GET` | `/admin/transformation/transformations`| Fetch active transformation processes | Yes (User/Admin) | `200 OK` (Transforms) |
 | `GET` | `/admin/transformation/validations` | List data validation rules | Yes (User/Admin) | `200 OK` (Validations) |
-| `GET` | `/admin/transformation/errors` | List transformation history errors | Yes (User/Admin) | `200 OK` (Error History) |
+| `GET` | `/admin/transformation/errors` <br> `/admin/transformation/errors_bin` | List transformation history errors | Yes (User/Admin) | `200 OK` (Error History) |
 | `GET` | `/admin/transformation/topic-dependencies` | Get Kafka/Queue topic dependencies | Yes (User/Admin) | `200 OK` (Dependencies) |
 
 ### Theme: Dead Letter Queue (DLQ)
@@ -99,5 +99,5 @@ Endpoints for monitoring and handling failed message deliveries.
 
 | Method | Endpoint | Description | Auth Required | Expected Returns |
 | :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/admin/dlq/` | Fetch all messages currently in the DLQ | Yes (Admin) | `200 OK` (DLQ Messages) |
+| `GET` | `/admin/dlq/` <br> `/admin/dlq/dlq_bin` | Fetch all messages currently in the DLQ | Yes (Admin) | `200 OK` (DLQ Messages) |
 | `POST` | `/admin/dlq/requeue` | Requeue a DLQ message for processing | Yes (Admin) | `202 Accepted` |

@@ -1,0 +1,35 @@
+/**
+ * SPDX-FileComment: Transformation Errors FlatBuffers Schema
+ * SPDX-FileType: SOURCE
+ * SPDX-FileContributor: ZHENG Robert
+ * SPDX-FileCopyrightText: 2026 ZHENG Robert
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file transformation_errors.fbs
+ * @brief FlatBuffers schema for transformation errors
+ * @version 1.0.0
+ * @date 2026-07-26
+ *
+ * @author ZHENG Robert (robert@hase-zheng.net)
+ * @copyright Copyright (c) 2026 ZHENG Robert
+ * @LICENSE Apache-2.0
+ */
+
+namespace schematas;
+
+table TransformationError {
+  id: string;
+  correlation_id: string;
+  topic: string;
+  failed_field: string;
+  rule_name: string;
+  error_message: string;
+  created_at: string;
+  created_at_unix_ms: int64;
+}
+
+table TransformationErrorList {
+  errors: [TransformationError];
+}
+
+root_type TransformationErrorList;
