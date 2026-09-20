@@ -18,6 +18,7 @@ pub fn routes() -> Router<AppState> {
         .route("/restore", post(handle_restore))
         .route("/key-rotation", post(handle_key_rotation))
         .route("/storage-keys", get(handle_get_storage_keys))
+        .route("/dashboard/stats", get(handle_dashboard_stats))
 }
 
 #[derive(Deserialize)]
@@ -321,4 +322,61 @@ async fn handle_get_storage_keys(State(state): State<AppState>) -> impl IntoResp
     }
 
     (StatusCode::OK, Json(keys)).into_response()
+}
+
+#[derive(Serialize)]
+pub struct DashboardStats {
+    pub db_name: String,
+    pub db_version: String,
+    pub db_size: String,
+    pub dlq_count: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct DbInfoRow {
+    current_database: String,
+    version: String,
+    pg_size_pretty: String,
+}
+
+async fn handle_dashboard_stats(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let db_info = match sqlx::query_as::<_, DbInfoRow>("SELECT current_database(), version(), pg_size_pretty(pg_database_size(current_database()))")
+        .fetch_one(&state.repo.pool)
+        .await
+    {
+        Ok(info) => info,
+        Err(e) => {
+            log::error!("Failed to fetch db info: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }]
+            })).into_response();
+        }
+    };
+
+    let version = if db_info.version.starts_with("PostgreSQL ") {
+        let parts: Vec<&str> = db_info.version.split_whitespace().collect();
+        if parts.len() >= 2 {
+            format!("{} {}", parts[0], parts[1])
+        } else {
+            db_info.version.clone()
+        }
+    } else {
+        db_info.version.clone()
+    };
+
+    let dlq_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dlq")
+        .fetch_one(&state.repo.pool)
+        .await
+        .unwrap_or((0,));
+
+    let stats = DashboardStats {
+        db_name: db_info.current_database,
+        db_version: version,
+        db_size: db_info.pg_size_pretty,
+        dlq_count: dlq_count.0,
+    };
+
+    (StatusCode::OK, Json(stats)).into_response()
 }
