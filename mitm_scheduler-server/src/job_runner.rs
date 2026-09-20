@@ -3,13 +3,13 @@ use std::process::Stdio;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::env;
 use crate::db::{Repository, ScheduledProgram};
 
 pub struct JobOrchestrator {
     repo: Arc<Repository>,
-    running_jobs: Arc<Mutex<HashSet<i32>>>,
+    running_jobs: Arc<Mutex<HashMap<i32, u32>>>,
     socket_path: String,
 }
 
@@ -17,21 +17,35 @@ impl JobOrchestrator {
     pub fn new(repo: Arc<Repository>, socket_path: String) -> Self {
         Self {
             repo,
-            running_jobs: Arc::new(Mutex::new(HashSet::new())),
+            running_jobs: Arc::new(Mutex::new(HashMap::new())),
             socket_path,
+        }
+    }
+
+    pub async fn stop_job(&self, program_id: i32) {
+        let running = self.running_jobs.lock().await;
+        if let Some(&pid) = running.get(&program_id) {
+            if pid > 0 {
+                log::info!("Sending SIGTERM to job {} (PID: {})", program_id, pid);
+                let _ = Command::new("kill").arg("-15").arg(pid.to_string()).output().await;
+            } else {
+                log::warn!("Job {} is running but PID is not yet known", program_id);
+            }
+        } else {
+            log::warn!("Job {} is not currently running", program_id);
         }
     }
 
     pub async fn run_job(&self, program: ScheduledProgram) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut running = self.running_jobs.lock().await;
-        if running.contains(&program.id) {
+        if running.contains_key(&program.id) {
             let msg = format!("Job {} is already running, skipping execution", program.name);
             log::info!("{}", msg);
             let _ = self.repo.log_system("WARN", "Scheduler", &msg).await;
             let _ = self.repo.log_job_audit(0, "Scheduler", &msg).await;
             return Ok(());
         }
-        running.insert(program.id);
+        running.insert(program.id, 0);
         drop(running);
 
         let repo = self.repo.clone();
@@ -84,6 +98,7 @@ impl JobOrchestrator {
             };
 
             let pid = child.id().unwrap_or(0);
+            running_jobs.lock().await.insert(program.id, pid);
             let _ = repo.log_system("DEBUG", "Scheduler", &format!("Job {} started (RunID {}, PID {})", program.name, run_id, pid)).await;
             
             let status = match child.wait().await {
