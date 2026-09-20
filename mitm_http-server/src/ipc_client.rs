@@ -91,7 +91,7 @@ pub async fn auth_middleware(
     let socket_dir = std::path::PathBuf::from(&config.socket_dir);
     let socket_path = socket_dir.join("mitm_iam.sock");
 
-    let mut auth_resp = match authenticate_via_ipc(&username, &token, &socket_path).await {
+    let auth_resp = match authenticate_via_ipc(&username, &token, &socket_path).await {
         Ok(r) => r,
         Err(e) => {
             log::error!("Auth IPC Error: {}", e);
