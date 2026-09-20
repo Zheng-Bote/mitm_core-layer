@@ -104,6 +104,23 @@ impl Repository {
         .await?;
         Ok(())
     }
+
+    pub async fn get_program_by_id(&self, program_id: i32) -> Result<ScheduledProgram, Box<dyn Error + Send + Sync>> {
+        let r: (i32, String, String, Option<String>, String, bool) = sqlx::query_as(
+            "SELECT id, name, command, args, cron_expr, enabled FROM scheduled_programs WHERE id = $1",
+        )
+        .bind(program_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(ScheduledProgram {
+            id: r.0,
+            name: r.1,
+            command: r.2,
+            args: r.3,
+            cron_expr: r.4,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
