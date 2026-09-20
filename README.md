@@ -13,6 +13,34 @@ This repository contains the core components of the MitM-2 Data Aggregator archi
 
 All microservices communicate via JSON messages over Unix Domain Sockets (UDS). The central communication hub is the PostgreSQL database, managed efficiently via `sqlx` connection pools.
 
+### C4 Container Diagram
+
+```mermaid
+C4Container
+    title Container Diagram for MitM-2 Core Layer
+
+    Person(admin, "Administrator", "System operator")
+    System_Ext(cpp_frontend, "Admin Frontend", "C++ UI for system management")
+
+    Container_Boundary(c1, "MitM-2 Core Layer (Rust)") {
+        Container(http_server, "HTTP Server", "Rust, Axum", "API Gateway providing REST JSON:API endpoints")
+        Container(iam_server, "IAM Server", "Rust", "Manages identity, access, and envelope encryption")
+        Container(scheduler, "Scheduler Server", "Rust", "Orchestration engine for jobs and logging")
+    }
+
+    ContainerDb(db, "PostgreSQL", "Relational Database", "Central storage for jobs, logs, and encrypted data")
+
+    Rel(admin, cpp_frontend, "Uses", "HTTPS")
+    Rel(cpp_frontend, http_server, "Makes API calls to", "JSON/REST")
+    
+    Rel(http_server, iam_server, "Verifies auth & fetches keys", "UDS (JSON)")
+    Rel(http_server, scheduler, "Sends commands (Execute/Stop)", "UDS (JSON)")
+    
+    Rel(http_server, db, "Reads/Writes data", "TCP/SQLx")
+    Rel(iam_server, db, "Reads/Writes roles", "TCP/SQLx")
+    Rel(scheduler, db, "Writes audit logs", "TCP/SQLx")
+```
+
 - **Security**: The `MASTER_KEY` is provided at startup via environment variables and is never persisted. PII data and roles are protected using AES-256-GCM envelope encryption.
 - **API Standard**: The `mitm_http-server` strictly adheres to the JSON:API specification for all error messages and data structures.
 
