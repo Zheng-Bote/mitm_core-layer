@@ -225,7 +225,14 @@ pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, 
         }
     }
 
-    // 2. Try Default files
+    // 2. Try ENVs if required ENV (MITM_DB_HOST) is present
+    if !get_env_str("MITM_DB_HOST", "").is_empty() {
+        let cfg = load_from_env(exe_dir);
+        log::info!("Loaded config from Environment Variables.");
+        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
+    }
+
+    // 3. Try Default files
     let default_path = exe_dir.join("config.enc");
     if let Ok(cfg) = load_encrypted_config(&default_path.to_string_lossy(), password) {
         log::info!("Loaded config from default path: {:?}", default_path);
@@ -235,13 +242,6 @@ pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, 
     let fallback_path = exe_dir.join("cfg").join("config.enc");
     if let Ok(cfg) = load_encrypted_config(&fallback_path.to_string_lossy(), password) {
         log::info!("Loaded config from fallback path: {:?}", fallback_path);
-        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
-    }
-
-    // 3. Try ENVs if required ENV (MITM_DB_HOST) is present
-    if !get_env_str("MITM_DB_HOST", "").is_empty() {
-        let cfg = load_from_env(exe_dir);
-        log::info!("Loaded config from Environment Variables.");
         return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
     }
 
