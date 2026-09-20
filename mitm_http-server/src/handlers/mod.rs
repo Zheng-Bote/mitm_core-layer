@@ -12,7 +12,7 @@ pub mod transformation;
 #[derive(Clone)]
 pub struct AppState {
     pub repo: Arc<Repository>,
-    // we can add config or other shared state here
+    pub config: Arc<mitm_common::config::DBConfig>,
 }
 
 #[derive(serde::Serialize)]
