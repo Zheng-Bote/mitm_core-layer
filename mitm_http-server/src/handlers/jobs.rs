@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+
 use tokio::net::UnixStream;
 use tokio::io::AsyncWriteExt;
 use mitm_common::ipc::SchedulerRequest;

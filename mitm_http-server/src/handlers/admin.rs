@@ -228,6 +228,7 @@ pub struct KeyRotationPayload {
 }
 
 #[derive(sqlx::FromRow)]
+#[allow(dead_code)]
 struct StorageKeyRecord {
     pub id: String,
     pub wrapped_key: Vec<u8>,
