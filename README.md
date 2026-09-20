@@ -36,6 +36,7 @@ C4Context
 ```mermaid
 C4Container
     title Container Diagram for MitM-2 Core Layer
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 
     %% 1. Reihe
     Person(admin, "Administrator", "System operator")
