@@ -15,6 +15,6 @@ mkdir -p ../bin
 echo "Copying binaries to ../bin/"
 cp target/x86_64-unknown-linux-musl/release/mitm-http-server ../bin/mitm-core-http
 cp target/x86_64-unknown-linux-musl/release/mitm-iam-server ../bin/mitm-core-iam
-cp target/x86_64-unknown-linux-musl/release/mitm-scheduler-server ../bin/mitm-iam-scheduler
+cp target/x86_64-unknown-linux-musl/release/mitm-scheduler-server ../bin/mitm-core-scheduler
 
 echo "Build complete! Binaries are located in ../bin/"
