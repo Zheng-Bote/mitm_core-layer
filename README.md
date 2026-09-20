@@ -37,16 +37,22 @@ C4Context
 C4Container
     title Container Diagram for MitM-2 Core Layer
 
+    %% 1. Reihe
     Person(admin, "Administrator", "System operator")
     System_Ext(cpp_frontend, "Admin Frontend", "C++ UI for system management")
 
+    %% 2. Reihe
     Container_Boundary(c1, "MitM-2 Core Layer (Rust)") {
         Container(http_server, "HTTP Server", "Rust, Axum", "API Gateway providing REST JSON:API endpoints")
         Container(iam_server, "IAM Server", "Rust", "Manages identity, access, and envelope encryption")
         Container(scheduler, "Scheduler Server", "Rust", "Orchestration engine for jobs and logging")
     }
 
-    ContainerDb(db, "PostgreSQL", "Relational Database", "Central storage for jobs, logs, and encrypted data")
+    %% 3. Reihe
+    System_Boundary(storage, "Storage") {
+        ContainerDb(db, "PostgreSQL", "Relational Database", "Central storage for jobs, logs, and encrypted data")
+        ContainerDb(fs, "Filesystem", "File Storage", "Local file buffering and extracted data")
+    }
 
     Rel(admin, cpp_frontend, "Uses", "HTTPS")
     Rel(cpp_frontend, http_server, "Makes API calls to", "JSON/REST")
@@ -57,6 +63,7 @@ C4Container
     Rel(http_server, db, "Reads/Writes data", "TCP/SQLx")
     Rel(iam_server, db, "Reads/Writes roles", "TCP/SQLx")
     Rel(scheduler, db, "Writes audit logs", "TCP/SQLx")
+    Rel(scheduler, fs, "Reads/Writes files", "I/O")
 ```
 
 - **Security**: The `MASTER_KEY` is provided at startup via environment variables and is never persisted. PII data and roles are protected using AES-256-GCM envelope encryption.
