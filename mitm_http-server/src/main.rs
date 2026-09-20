@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let repo = std::sync::Arc::new(db::Repository::new(&config).await?);
-    let app_state = handlers::AppState { repo };
+    let app_state = handlers::AppState { repo, config: std::sync::Arc::new(config.clone()) };
 
     let app = handlers::configure_routes()
         .layer(auth_layer)

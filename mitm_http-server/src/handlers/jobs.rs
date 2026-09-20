@@ -54,10 +54,8 @@ async fn handle_get_jobs(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn send_scheduler_ipc(req: SchedulerRequest) -> Result<(), String> {
-    // We assume socket is /var/run/mitm_scheduler.sock for now
-    // A production version should read from config
-    let socket_path = "/var/run/mitm_scheduler.sock";
+async fn send_scheduler_ipc(req: SchedulerRequest, socket_dir: &str) -> Result<(), String> {
+    let socket_path = std::path::Path::new(socket_dir).join("mitm_scheduler.sock");
     let mut stream = UnixStream::connect(socket_path).await.map_err(|e| e.to_string())?;
     let mut out = serde_json::to_string(&req).map_err(|e| e.to_string())?;
     out.push('\n');
@@ -65,8 +63,8 @@ async fn send_scheduler_ipc(req: SchedulerRequest) -> Result<(), String> {
     Ok(())
 }
 
-async fn handle_update_jobs() -> impl IntoResponse {
-    match send_scheduler_ipc(SchedulerRequest::UpdateJobs).await {
+async fn handle_update_jobs(State(state): State<AppState>) -> impl IntoResponse {
+    match send_scheduler_ipc(SchedulerRequest::UpdateJobs, &state.config.socket_dir).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => {
             let err = ErrorResponse {
@@ -96,7 +94,7 @@ async fn handle_delete_job(
         .await
     {
         Ok(_) => {
-            let _ = send_scheduler_ipc(SchedulerRequest::UpdateJobs).await;
+            let _ = send_scheduler_ipc(SchedulerRequest::UpdateJobs, &state.config.socket_dir).await;
             StatusCode::OK.into_response()
         },
         Err(e) => {
@@ -118,9 +116,10 @@ pub struct JobIdPayload {
 }
 
 async fn handle_stop_job(
+    State(state): State<AppState>,
     Json(payload): Json<JobIdPayload>,
 ) -> impl IntoResponse {
-    match send_scheduler_ipc(SchedulerRequest::StopJob(payload.id)).await {
+    match send_scheduler_ipc(SchedulerRequest::StopJob(payload.id), &state.config.socket_dir).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => {
             let err = ErrorResponse {
@@ -136,9 +135,10 @@ async fn handle_stop_job(
 }
 
 async fn handle_execute_job(
+    State(state): State<AppState>,
     Json(payload): Json<JobIdPayload>,
 ) -> impl IntoResponse {
-    match send_scheduler_ipc(SchedulerRequest::ExecuteJob(payload.id)).await {
+    match send_scheduler_ipc(SchedulerRequest::ExecuteJob(payload.id), &state.config.socket_dir).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => {
             let err = ErrorResponse {
