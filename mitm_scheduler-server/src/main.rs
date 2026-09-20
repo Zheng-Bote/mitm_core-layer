@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             Ok(SchedulerRequest::StopJob(job_id)) => {
                                 log::info!("API requested StopJob for job {}", job_id);
-                                // For a full implementation, we would send SIGTERM to the child's PID.
+                                orch.stop_job(job_id).await;
                             }
                             Ok(SchedulerRequest::UpdateJobs) => {
                                 log::info!("API requested UpdateJobs, reloading scheduler config");
