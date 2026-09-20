@@ -1,0 +1,33 @@
+/**
+ * SPDX-FileComment: Job Audit Logs FlatBuffers Schema
+ * SPDX-FileType: SOURCE
+ * SPDX-FileContributor: ZHENG Robert
+ * SPDX-FileCopyrightText: 2026 ZHENG Robert
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file job_audit_logs.fbs
+ * @brief FlatBuffers schema for job audit logs
+ * @version 1.0.0
+ * @date 2026-07-26
+ *
+ * @author ZHENG Robert (robert@hase-zheng.net)
+ * @copyright Copyright (c) 2026 ZHENG Robert
+ * @LICENSE Apache-2.0
+ */
+
+namespace schematas;
+
+table JobAuditLog {
+  id: int64;
+  run_id: int64;
+  component: string;
+  message: string;
+  ts: string;
+  ts_unix_ms: int64;
+}
+
+table JobAuditLogList {
+  logs: [JobAuditLog];
+}
+
+root_type JobAuditLogList;

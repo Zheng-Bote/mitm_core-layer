@@ -1,6 +1,7 @@
 mod ipc_client;
 mod db;
 mod handlers;
+mod schematas;
 use std::env;
 use axum_server::tls_rustls::RustlsConfig;
 use mitm_common::config::load_config;

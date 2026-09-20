@@ -1,0 +1,33 @@
+/**
+ * SPDX-FileComment: Admin Audit Logs FlatBuffers Schema
+ * SPDX-FileType: SOURCE
+ * SPDX-FileContributor: ZHENG Robert
+ * SPDX-FileCopyrightText: 2026 ZHENG Robert
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file admin_audit_logs.fbs
+ * @brief FlatBuffers schema for admin audit logs
+ * @version 1.0.0
+ * @date 2026-07-26
+ *
+ * @author ZHENG Robert (robert@hase-zheng.net)
+ * @copyright Copyright (c) 2026 ZHENG Robert
+ * @LICENSE Apache-2.0
+ */
+
+namespace schematas;
+
+table AdminAuditLog {
+  id: int64;
+  username: string;
+  action: string;
+  details: string;
+  ts: string;
+  ts_unix_ms: int64;
+}
+
+table AdminAuditLogList {
+  logs: [AdminAuditLog];
+}
+
+root_type AdminAuditLogList;
