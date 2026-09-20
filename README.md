@@ -33,6 +33,14 @@ The workspace is split into the following crates. Please consult the individual 
 - [**mitm_iam-server**](./mitm_iam-server): The Identity and Access Management server handling AES-256-GCM envelope encryption and RBAC.
 - [**mitm_scheduler-server**](./mitm_scheduler-server): The job orchestration engine tracking system PIDs and executing jobs.
 
+## Configuration Architecture
+
+The MitM-2 core layer follows a **decentralized, stateless configuration model** for its primary microservices, adhering to the 12-Factor App methodology.
+
+- **Independent Loading**: The HTTP, IAM, and Scheduler servers *each* independently load their configuration upon startup using `mitm_common::config::load_config()`. 
+- **Resilience**: This guarantees that if a single service crashes, the supervisor can restart it instantly without it hanging or waiting for a master process to push the configuration via IPC.
+- **Reference**: An unencrypted example configuration structure can be found at [`config/example_config.json`](./config/example_config.json). In production, this JSON is encrypted into a `.enc` file using AES-256-GCM, and is decrypted at runtime using the `MASTER_KEY` environment variable.
+
 ## Build Instructions
 
 You can build all core components as statically linked binaries using Cargo workspaces:
