@@ -11,11 +11,12 @@ This document outlines the REST JSON:API endpoints provided by the `mitm_http-se
 In compliance with the JSON:API standard, responses follow a strict schema:
 
 **Success (2xx):**
-Returns `200 OK` (data retrieval) or `202 Accepted` / `204 No Content` (mutations/actions) with the payload encapsulated in a `data` array/object.
+Returns `200 OK` (data retrieval) or `202 Accepted` / `204 No Content` (mutations/actions).
+To remain strictly backward-compatible with the legacy Go server and the C++ Admin Frontend (`mitm_fe_cpp`), successful GET endpoints return data as flat, raw JSON arrays or objects (rather than encapsulating them in a `data` root node).
 ```json
-{
-  "data": [ ... ]
-}
+[
+  { "id": 1, "name": "example" }
+]
 ```
 
 **Errors (4xx, 5xx):**
