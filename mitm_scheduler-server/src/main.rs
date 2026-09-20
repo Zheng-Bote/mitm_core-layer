@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let repo = repo.clone();
                 let mk = master_key_str.clone();
                 let db_cfg = db_config_json.clone();
+                let orch = orchestrator.clone();
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.split();
                     let mut reader = BufReader::new(reader);
@@ -105,10 +106,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             Ok(SchedulerRequest::ExecuteJob(job_id)) => {
                                 log::info!("API requested ExecuteJob for job {}", job_id);
-                                // The job execution would be dispatched to orchestrator here
+                                let orch_clone = orch.clone();
+                                let repo_clone = repo.clone();
+                                tokio::spawn(async move {
+                                    if let Ok(prog) = repo_clone.get_program_by_id(job_id).await {
+                                        if let Err(e) = orch_clone.run_job(prog).await {
+                                            log::error!("Failed to execute job {}: {}", job_id, e);
+                                        }
+                                    } else {
+                                        log::error!("Failed to fetch job {}", job_id);
+                                    }
+                                });
                             }
                             Ok(SchedulerRequest::StopJob(job_id)) => {
                                 log::info!("API requested StopJob for job {}", job_id);
+                                // For a full implementation, we would send SIGTERM to the child's PID.
                             }
                             Ok(SchedulerRequest::UpdateJobs) => {
                                 log::info!("API requested UpdateJobs, reloading scheduler config");
