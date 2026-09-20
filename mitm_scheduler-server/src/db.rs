@@ -65,8 +65,8 @@ impl Repository {
     }
 
     pub async fn get_enabled_programs(&self) -> Result<Vec<ScheduledProgram>, Box<dyn Error + Send + Sync>> {
-        let records: Vec<(i32, String, String, Option<String>, String, bool)> = sqlx::query_as(
-            "SELECT id, name, command, args, cron_expr, enabled FROM scheduled_programs WHERE enabled = true",
+        let records: Vec<(i32, String, String, Option<String>, String, bool, bool)> = sqlx::query_as(
+            "SELECT id, name, command, args, cron_expr, enabled, restart_on_exit FROM scheduled_programs WHERE enabled = true",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -77,6 +77,7 @@ impl Repository {
             command: r.2,
             args: r.3,
             cron_expr: r.4,
+            restart_on_exit: r.6,
         }).collect();
 
         Ok(programs)
@@ -90,6 +91,15 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
         Ok(record.0)
+    }
+    
+    pub async fn update_run_pid(&self, run_id: i32, pid: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query("UPDATE program_runs SET pid = $1 WHERE id = $2")
+            .bind(pid as i32)
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn update_program_run(&self, run_id: i32, exit_code: i32, success: bool, pid: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -106,8 +116,8 @@ impl Repository {
     }
 
     pub async fn get_program_by_id(&self, program_id: i32) -> Result<ScheduledProgram, Box<dyn Error + Send + Sync>> {
-        let r: (i32, String, String, Option<String>, String, bool) = sqlx::query_as(
-            "SELECT id, name, command, args, cron_expr, enabled FROM scheduled_programs WHERE id = $1",
+        let r: (i32, String, String, Option<String>, String, bool, bool) = sqlx::query_as(
+            "SELECT id, name, command, args, cron_expr, enabled, restart_on_exit FROM scheduled_programs WHERE id = $1",
         )
         .bind(program_id)
         .fetch_one(&self.pool)
@@ -119,6 +129,7 @@ impl Repository {
             command: r.2,
             args: r.3,
             cron_expr: r.4,
+            restart_on_exit: r.6,
         })
     }
 }
@@ -130,4 +141,5 @@ pub struct ScheduledProgram {
     pub command: String,
     pub cron_expr: String,
     pub args: Option<String>,
+    pub restart_on_exit: bool,
 }
