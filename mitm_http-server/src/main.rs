@@ -1,6 +1,7 @@
 mod ipc_client;
 mod db;
 mod handlers;
+#[allow(warnings, clippy::all)]
 mod schematas;
 use std::env;
 use axum_server::tls_rustls::RustlsConfig;
