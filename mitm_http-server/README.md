@@ -47,3 +47,15 @@ C4Component
     Rel(ipc_client, iam_server, "Sends UDS messages", "JSON")
     Rel(ipc_client, scheduler, "Sends UDS messages", "JSON")
 ```
+
+## Configuration
+
+- `MITM_DB_URL` (optional): PostgreSQL Connection String.
+- `IAM_SOCKET_PATH` (optional): Path to the IAM UDS.
+- `SCHEDULER_SOCKET_PATH` (optional): Path to the Scheduler UDS.
+
+## Execution
+
+```bash
+cargo run -p mitm-http-server
+```

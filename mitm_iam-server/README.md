@@ -28,3 +28,18 @@ C4Component
     
     Rel(db_layer, db, "Executes queries", "TCP/SQLx")
 ```
+
+## Configuration
+
+The IAM Server expects the following environment variables:
+
+- `MITM_DB_URL` (optional): PostgreSQL Connection String. Overrides the `.enc` config.
+- `MASTER_KEY` (required): The cryptographic master key for AES-GCM envelope encryption. Must be provided at startup via ENV and is never persisted.
+- `IAM_SOCKET_PATH` (optional): Override the Unix Domain Socket path (defaults to `/tmp/mitm_iam.sock`).
+
+## Execution
+
+Run the server directly (ensure PostgreSQL is running):
+```bash
+MASTER_KEY="your-secure-key" cargo run -p mitm-iam-server
+```
