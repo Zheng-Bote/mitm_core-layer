@@ -9,11 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # Needed to upload assets to the release
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-      
+        uses: actions/checkout@v7
+
       - name: Generate CycloneDX SBOM
         uses: sbomify/sbomify-action@master
         env:
@@ -23,7 +23,7 @@ jobs:
           COMPONENT_VERSION: ${{ github.ref_name }}
           ENRICH: true
           UPLOAD: false
-          
+
       - name: Upload SBOM to Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
