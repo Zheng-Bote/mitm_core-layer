@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::AppState;
 use crate::schematas;
 use flatbuffers::FlatBufferBuilder;
 
