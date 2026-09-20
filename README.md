@@ -13,6 +13,24 @@ This repository contains the core components of the MitM-2 Data Aggregator archi
 
 All microservices communicate via JSON messages over Unix Domain Sockets (UDS). The central communication hub is the PostgreSQL database, managed efficiently via `sqlx` connection pools.
 
+### C4 System Landscape Diagram
+
+```mermaid
+C4Context
+    title System Landscape Diagram for MitM-2 Data Aggregator
+
+    Person(admin, "Administrator", "Manages the data pipeline, monitors jobs")
+
+    System_Ext(sources, "Source Systems", "Oracle, PostgreSQL, CSV, Kafka, APIs")
+    System_Ext(target_saas, "Target SaaS Solutions", "Cority, Apigee, etc.")
+
+    System(mitm, "MitM-2 System", "Secure, decoupled data aggregator that collects, encrypts, and transmits PII data")
+
+    Rel(admin, mitm, "Configures and monitors", "HTTPS / Admin UI")
+    Rel(mitm, sources, "Collects data from", "SQL, Kafka, REST")
+    Rel(mitm, target_saas, "Transmits JSON payloads to", "HTTPS / REST")
+```
+
 ### C4 Container Diagram
 
 ```mermaid
