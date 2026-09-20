@@ -1,0 +1,28 @@
+{
+  "db": {
+    "host": "db.host.org",
+    "port": 5432,
+    "user": "db_user",
+    "password": "your_secure_password",
+    "database": "mitm_db",
+    "db_connect_delay": 10,
+    "sslmode": true,
+    "max_conns": 50
+  },
+  "http_port": 8443,
+  "use_https": true,
+  "ssl_cert": "./cfg/server.crt",
+  "ssl_key": "./cfg/server.key",
+  "log_level": "INFO",
+  "upload_dir": "./mitm_uploads",
+  "admins": [
+    {
+      "username": "admin1",
+      "token": "secret_token_123"
+    },
+    {
+      "username": "win_client",
+      "token": "helo_auth_token_999"
+    }
+  ]
+}

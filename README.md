@@ -37,7 +37,7 @@ The workspace is split into the following crates. Please consult the individual 
 
 The MitM-2 core layer follows a **decentralized, stateless configuration model** for its primary microservices, adhering to the 12-Factor App methodology.
 
-- **Independent Loading**: The HTTP, IAM, and Scheduler servers *each* independently load their configuration upon startup using `mitm_common::config::load_config()`. 
+- **Independent Loading**: The HTTP, IAM, and Scheduler servers _each_ independently load their configuration upon startup using `mitm_common::config::load_config()`.
 - **Resilience**: This guarantees that if a single service crashes, the supervisor can restart it instantly without it hanging or waiting for a master process to push the configuration via IPC.
 - **Reference**: An unencrypted example configuration structure can be found at [`config/example_config.json`](./config/example_config.json). In production, this JSON is encrypted into a `.enc` file using AES-256-GCM, and is decrypted at runtime using the `MASTER_KEY` environment variable.
 
@@ -50,6 +50,7 @@ cargo build --workspace --release
 ```
 
 Or run the specific legacy build script if you need Musl targets:
+
 ```bash
 ./build.sh
 ```
@@ -59,6 +60,7 @@ Or run the specific legacy build script if you need Musl targets:
 To deploy the system in an isolated container environment, you can use the following example `Dockerfile` and startup sequence. It uses a lightweight Alpine image and supervisord to run all binaries.
 
 ### `Dockerfile`
+
 ```dockerfile
 # Build Stage
 FROM rust:1.80-alpine AS builder
@@ -81,15 +83,13 @@ COPY --from=builder /usr/src/mitm-core/target/release/mitm-http-server /app/
 COPY supervisord.conf /etc/supervisord.conf
 
 # Set required environment variables (in production, use Docker secrets / .env files)
-ENV MITM_DB_URL="postgres://postgres:password@db:5432/mitm"
-ENV IAM_SOCKET_PATH="/tmp/mitm_iam.sock"
-ENV SCHEDULER_SOCKET_PATH="/tmp/mitm_scheduler.sock"
 
 EXPOSE 8080
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
 ```
 
 ### Startup Sequence (`supervisord.conf`)
+
 Since the HTTP Server and Scheduler Server depend on the IAM Server (for cryptographic keys and RBAC) and the Database, the startup sequence should prioritize the IAM daemon:
 
 ```ini
@@ -118,4 +118,3 @@ priority=30
 ## SpecDD Compliance
 
 This layer strictly adheres to the SpecDD (Specification-Driven Development) framework defined for the MitM-2 project. All features, architecture constraints, and security standards (e.g., envelope encryption) are maintained.
-
