@@ -37,16 +37,26 @@ If a request fails, the server returns an HTTP error status code along with an `
 
 The endpoints are grouped logically by theme. All routes are currently nested under the `/admin/` namespace.
 
+### Theme: Public & Meta
+Endpoints for system probing and health checks.
+
+| Method | Endpoint | Description | Auth Required | Expected Returns |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/info` | Fetch server version and metadata | No | `200 OK` (JSON Info) |
+| `GET` | `/health` | Check database connectivity and status | No | `200 OK` ("OK") |
+| `GET` | `/time` | Retrieve current server time and timezone | No | `200 OK` (Time Info) |
+
 ### Theme: Job Management (Orchestration)
 Endpoints for scheduling, triggering, and managing background worker jobs.
 
 | Method | Endpoint | Description | Auth Required | Expected Returns |
 | :--- | :--- | :--- | :--- | :--- |
 | `GET` | `/admin/jobs/` | List all available and active jobs | Yes (User/Admin) | `200 OK` (Array of Jobs) |
-| `POST` | `/admin/jobs/update-jobs` | Reload job configuration and schedules | Yes (Admin) | `202 Accepted` |
-| `DELETE`| `/admin/jobs/delete-job` | Delete a specific job definition | Yes (Admin) | `204 No Content` |
-| `POST` | `/admin/jobs/stop-job` | Halt a running job (sends `SIGTERM`/`SIGKILL`) | Yes (Admin) | `202 Accepted` |
-| `POST` | `/admin/jobs/execute-job` | Immediately trigger a job via UDS Scheduler | Yes (Admin) | `202 Accepted` |
+| `POST` | `/admin/update-jobs` | Reload job configuration and schedules | Yes (Admin) | `202 Accepted` |
+| `DELETE`| `/admin/delete-job` | Delete a specific job definition | Yes (Admin) | `204 No Content` |
+| `POST` | `/admin/stop-job` | Halt a running job (sends `SIGTERM`/`SIGKILL`) | Yes (Admin) | `202 Accepted` |
+| `POST` | `/admin/execute-job` | Immediately trigger a job via UDS Scheduler | Yes (Admin) | `202 Accepted` |
+| `POST` | `/admin/upload/source_file` | Upload a data source file to trigger a collector | Yes (Admin) | `200 OK` |
 
 ### Theme: Identity & Access Management (RBAC)
 Endpoints for managing users, roles, and permissions. Encryption keys are managed via IAM.
@@ -71,6 +81,9 @@ Endpoints for system maintenance, backup, and cryptographic key rotation.
 | `POST` | `/admin/restore` | Restore system from a backup snapshot | Yes (Admin) | `202 Accepted` |
 | `POST` | `/admin/key-rotation` | Trigger AES-GCM DEK key rotation via IAM | Yes (Admin) | `200 OK` (Status Details) |
 | `GET` | `/admin/storage-keys` | Retrieve public storage keys | Yes (Admin) | `200 OK` (Keys Payload) |
+| `GET` | `/admin/dashboard/stats` | Fetch high-level statistics for the UI dashboard | Yes (Admin) | `200 OK` (Stats Object) |
+| `GET` | `/admin/credentials` | Fetch encrypted database credentials | Yes (Admin) | `200 OK` (Credentials Object) |
+| `GET` | `/admin/delivery_targets` | Fetch list of target delivery configurations | Yes (Admin) | `200 OK` (Targets Array) |
 
 ### Theme: Audit & System Logs
 Endpoints for fetching execution history and compliance logs.
@@ -93,6 +106,7 @@ Endpoints for managing rules that map Source systems to Target SaaS solutions.
 | `GET` | `/admin/transformation/validations` | List data validation rules | Yes (User/Admin) | `200 OK` (Validations) |
 | `GET` | `/admin/transformation/errors` <br> `/admin/transformation/errors_bin` | List transformation history errors | Yes (User/Admin) | `200 OK` (Error History) |
 | `GET` | `/admin/transformation/topic-dependencies` | Get Kafka/Queue topic dependencies | Yes (User/Admin) | `200 OK` (Dependencies) |
+| `POST` | `/admin/transformation/auto-map` | Auto-generate mapping rules via Levenshtein | Yes (Admin) | `200 OK` (Suggested Rules) |
 
 ### Theme: Dead Letter Queue (DLQ)
 Endpoints for monitoring and handling failed message deliveries.

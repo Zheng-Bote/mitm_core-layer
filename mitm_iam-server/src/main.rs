@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use tokio::net::UnixListener;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::signal;
 use mitm_common::config::{load_config, DBConfig};
 use mitm_common::ipc::{IpcRequest, IpcResponse, AuthResponse};
 use subtle::ConstantTimeEq;
@@ -32,10 +33,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo = db::Repository::new(&config).await?;
     log::info!("Connected to PostgreSQL at {}:{}", config.db.host, config.db.port);
 
-    db::bootstrap_admins(&repo, &config).await;
+    let kek = password.as_bytes().to_vec();
+    db::bootstrap_admins(&repo, &config, &kek).await;
 
     // Log startup
-    let _ = repo.log_system("INFO", "iam-server", &format!("Starting {} v{}", APP_NAME, VERSION)).await;
+    let success_msg = format!("{} ({}) started successfully", APP_NAME, VERSION);
+    let _ = repo.log_system("INFO", "iam-server", &success_msg).await;
+    log::info!("{}", success_msg);
 
     // Ensure socket directory exists
     let socket_dir = PathBuf::from(&config.socket_dir);
@@ -52,52 +56,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("IAM Server listening on UDS {:?}", socket_path);
 
     let config = std::sync::Arc::new(config);
-    let repo = std::sync::Arc::new(repo);
+    let repo_arc = std::sync::Arc::new(repo);
+    let repo_clone = repo_arc.clone();
+    let kek_arc = std::sync::Arc::new(kek);
 
-    loop {
-        match listener.accept().await {
-            Ok((mut stream, _)) => {
-                let config = config.clone();
-                let repo = repo.clone();
-                tokio::spawn(async move {
-                    let (reader, mut writer) = stream.split();
-                    let mut reader = BufReader::new(reader);
-                    let mut line = String::new();
+    let _server_task = tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((mut stream, _)) => {
+                    let config = config.clone();
+                    let repo = repo_clone.clone();
+                    let kek = kek_arc.clone();
+                    tokio::spawn(async move {
+                        let (reader, mut writer) = stream.split();
+                        let mut reader = BufReader::new(reader);
+                        let mut line = String::new();
 
-                    while let Ok(bytes) = reader.read_line(&mut line).await {
-                        if bytes == 0 { break; }
-                        
-                        match serde_json::from_str::<IpcRequest>(&line) {
-                            Ok(IpcRequest::LogSystem { level, component, message }) => {
-                                if let Err(e) = repo.log_system(&level, &component, &message).await {
-                                    log::error!("Failed to save LogSystem IPC: {}", e);
+                        while let Ok(bytes) = reader.read_line(&mut line).await {
+                            if bytes == 0 { break; }
+                            
+                            match serde_json::from_str::<IpcRequest>(&line) {
+                                Ok(IpcRequest::LogSystem { level, component, message }) => {
+                                    if let Err(e) = repo.log_system(&level, &component, &message).await {
+                                        log::error!("Failed to save LogSystem IPC: {}", e);
+                                    }
                                 }
-                            }
-                            Ok(IpcRequest::Authenticate(req)) => {
-                                let response = handle_authenticate(req, &config, &repo).await;
-                                if let Ok(resp_json) = serde_json::to_string(&response) {
-                                    let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                Ok(IpcRequest::Authenticate(req)) => {
+                                    let response = handle_authenticate(req, &config, &repo, &kek).await;
+                                    if let Ok(resp_json) = serde_json::to_string(&response) {
+                                        let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                let response = IpcResponse::Error(format!("Invalid IPC JSON: {}", e));
-                                if let Ok(resp_json) = serde_json::to_string(&response) {
-                                    let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                Err(e) => {
+                                    let err_msg = format!("Invalid IPC JSON: {}", e);
+                                    log::error!("{}", err_msg);
+                drop(e);
+                                    let _ = repo.log_system("ERROR", "iam-server", &err_msg).await;
+                                    let response = IpcResponse::Error(err_msg);
+                                    if let Ok(resp_json) = serde_json::to_string(&response) {
+                                        let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                    }
                                 }
-                            }
-                        };
-                        line.clear();
-                    }
-                });
-            }
-            Err(e) => {
-                log::error!("Failed to accept connection: {}", e);
+                            };
+                            line.clear();
+                        }
+                    });
+                }
+                Err(e) => {
+                    let err_msg = format!("Failed to accept connection: {}", e);
+                    log::error!("{}", err_msg);
+                drop(e);
+                    let _ = repo_clone.log_system("ERROR", "iam-server", &err_msg).await;
+                }
             }
         }
+    });
+
+    // Wait for termination
+    tokio::select! {
+        _ = signal::ctrl_c() => {},
+        _ = async {
+            #[cfg(unix)]
+            {
+                if let Ok(mut sig) = signal::unix::signal(signal::unix::SignalKind::terminate()) {
+                    sig.recv().await;
+                }
+            }
+            #[cfg(not(unix))]
+            std::future::pending::<()>().await;
+        } => {},
     }
+
+    let shutdown_msg = "Shutting down...";
+    log::info!("{}", shutdown_msg);
+    let _ = repo_arc.log_system("INFO", "iam-server", shutdown_msg).await;
+
+    Ok(())
 }
 
-async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConfig, repo: &db::Repository) -> IpcResponse {
+async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConfig, repo: &db::Repository, kek: &[u8]) -> IpcResponse {
     // 1. In-Memory Check
     for admin in &config.admins {
         if admin.username.as_bytes().ct_eq(req.username.as_bytes()).unwrap_u8() == 1
@@ -112,19 +149,28 @@ async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConf
     }
 
     // 2. DB Fallback Check
-    let is_valid = match repo.check_password(&req.username, &req.token).await {
+    let is_valid = match repo.check_password(&req.username, &req.token).await.map_err(|e| e.to_string()) {
         Ok(valid) => valid,
         Err(e) => {
-            log::error!("Database check error: {}", e);
+            let err_msg = format!("Database check error: {}", e);
+            log::error!("{}", err_msg);
+                drop(e);
+            let _ = repo.log_system("ERROR", "iam-server", &err_msg).await;
             return IpcResponse::Error("Internal authentication error".to_string());
         }
     };
 
     if is_valid {
-        let roles = repo.get_user_roles(&req.username).await.unwrap_or_else(|e| {
-            log::error!("Failed to fetch roles for {}: {}", req.username, e);
-            vec![]
-        });
+        let roles = match repo.get_user_roles(&req.username, kek).await.map_err(|e| e.to_string()) {
+            Ok(r) => r,
+            Err(e) => {
+                let err_msg = format!("Failed to fetch roles for {}: {}", req.username, e);
+                log::error!("{}", err_msg);
+                drop(e);
+                let _ = repo.log_system("ERROR", "iam-server", &err_msg).await;
+                vec![]
+            }
+        };
         IpcResponse::AuthenticateResult(AuthResponse {
             success: true,
             username: req.username,

@@ -149,37 +149,51 @@ async fn handle_assign_roles(
     State(state): State<AppState>,
     Json(payload): Json<AssignRolesReq>,
 ) -> impl IntoResponse {
-    let mut tx = match state.repo.pool.begin().await {
-        Ok(t) => t,
+    let roles_json = match serde_json::to_vec(&payload.role_ids) {
+        Ok(v) => v,
         Err(e) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB error".into(), detail: Some(e.to_string()) }] };
+            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "JSON error".into(), detail: Some(e.to_string()) }] };
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        }
+    };
+    
+    let wrapped_dek = match crypto::generate_wrapped_dek(&state.kek) {
+        Ok(w) => w,
+        Err(e) => {
+            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Crypto error".into(), detail: Some(e.to_string()) }] };
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        }
+    };
+    
+    let (ciphertext, nonce) = match crypto::envelope_encrypt(&state.kek, &wrapped_dek, &roles_json) {
+        Ok(res) => res,
+        Err(e) => {
+            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Crypto error".into(), detail: Some(e.to_string()) }] };
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
         }
     };
 
-    if let Err(e) = sqlx::query("DELETE FROM user_roles WHERE user_id = $1")
-        .bind(payload.user_id)
-        .execute(&mut *tx).await 
-    {
-        let _ = tx.rollback().await;
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB error".into(), detail: Some(e.to_string()) }] };
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
-    }
-
-    for role_id in payload.role_ids {
-        if let Err(e) = sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)")
-            .bind(payload.user_id)
-            .bind(role_id)
-            .execute(&mut *tx).await 
-        {
-            let _ = tx.rollback().await;
+    match sqlx::query(
+        "INSERT INTO user_roles_encrypted (user_id, wrapped_dek, nonce, encrypted_roles) 
+         VALUES ($1, $2, $3, $4) 
+         ON CONFLICT (user_id) DO UPDATE SET 
+         wrapped_dek = EXCLUDED.wrapped_dek, 
+         nonce = EXCLUDED.nonce, 
+         encrypted_roles = EXCLUDED.encrypted_roles, 
+         updated_at = CURRENT_TIMESTAMP"
+    )
+    .bind(payload.user_id)
+    .bind(wrapped_dek)
+    .bind(nonce)
+    .bind(ciphertext)
+    .execute(&state.repo.pool)
+    .await {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(e) => {
             let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB error".into(), detail: Some(e.to_string()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
         }
     }
-
-    let _ = tx.commit().await;
-    StatusCode::OK.into_response()
 }
 
 #[derive(Deserialize)]
@@ -191,19 +205,25 @@ async fn handle_get_user_roles(
     State(state): State<AppState>,
     Query(query): Query<GetUserRolesQuery>,
 ) -> impl IntoResponse {
-    let mut roles = Vec::new();
-    if let Ok(rows) = sqlx::query("SELECT role_id FROM user_roles WHERE user_id = $1")
+    let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = match sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
         .bind(query.user_id)
-        .fetch_all(&state.repo.pool)
-        .await
-    {
-        for row in rows {
-            use sqlx::Row;
-            if let Ok(role_id) = row.try_get::<i32, _>(0) {
-                roles.push(role_id);
-            }
-        }
-    }
+        .fetch_optional(&state.repo.pool)
+        .await {
+            Ok(r) => r,
+            Err(_) => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
+        };
+
+    let (wrapped_dek, nonce, encrypted_roles) = match row {
+        Some(r) => r,
+        None => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
+    };
+
+    let plaintext = match crypto::envelope_decrypt(&state.kek, &wrapped_dek, &nonce, &encrypted_roles) {
+        Ok(p) => p,
+        Err(_) => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
+    };
+
+    let roles: Vec<i32> = serde_json::from_slice(&plaintext).unwrap_or_default();
     (StatusCode::OK, Json(roles)).into_response()
 }
 
@@ -216,19 +236,55 @@ async fn handle_get_os_user_roles(
     State(state): State<AppState>,
     Query(query): Query<OsUserQuery>,
 ) -> impl IntoResponse {
-    let mut roles = Vec::new();
-    let sql = "SELECT r.name FROM roles r JOIN user_roles ur ON r.id = ur.role_id JOIN admin_users u ON ur.user_id = u.id WHERE u.username = $1 AND u.is_active = true";
-    if let Ok(rows) = sqlx::query(sql)
+    let record: Option<(i32,)> = match sqlx::query_as("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
         .bind(&query.os_user)
+        .fetch_optional(&state.repo.pool)
+        .await {
+            Ok(r) => r,
+            Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
+        };
+
+    let user_id = match record {
+        Some(r) => r.0,
+        None => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
+    };
+
+    let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = match sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.repo.pool)
+        .await {
+            Ok(r) => r,
+            Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
+        };
+
+    let (wrapped_dek, nonce, encrypted_roles) = match row {
+        Some(r) => r,
+        None => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
+    };
+
+    let plaintext = match crypto::envelope_decrypt(&state.kek, &wrapped_dek, &nonce, &encrypted_roles) {
+        Ok(p) => p,
+        Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
+    };
+
+    let role_ids: Vec<i32> = serde_json::from_slice(&plaintext).unwrap_or_default();
+
+    if role_ids.is_empty() {
+        return (StatusCode::OK, Json(Vec::<String>::new())).into_response();
+    }
+
+    let mut role_names = Vec::new();
+    if let Ok(rows) = sqlx::query("SELECT name FROM roles WHERE id = ANY($1)")
+        .bind(&role_ids)
         .fetch_all(&state.repo.pool)
-        .await
-    {
-        for row in rows {
-            use sqlx::Row;
-            if let Ok(role_name) = row.try_get::<String, _>(0) {
-                roles.push(role_name);
+        .await {
+            for row in rows {
+                use sqlx::Row;
+                if let Ok(name) = row.try_get::<String, _>(0) {
+                    role_names.push(name);
+                }
             }
         }
-    }
-    (StatusCode::OK, Json(roles)).into_response()
+
+    (StatusCode::OK, Json(role_names)).into_response()
 }

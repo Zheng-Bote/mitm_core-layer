@@ -8,6 +8,16 @@ pub struct Repository {
 }
 
 impl Repository {
+    pub async fn log_system(&self, level: &str, component: &str, message: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("INSERT INTO system_logs (level, component, message) VALUES ($1, $2, $3)")
+            .bind(level)
+            .bind(component)
+            .bind(message)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn new(config: &DBConfig) -> Result<Self, Box<dyn Error>> {
         let db_url = format!(
             "postgres://{}:{}@{}:{}/{}?sslmode={}",

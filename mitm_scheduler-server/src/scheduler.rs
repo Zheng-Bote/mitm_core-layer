@@ -31,7 +31,12 @@ impl CronScheduler {
             };
 
             for program in programs {
-                if let Ok(schedule) = Schedule::from_str(&program.cron_expr) {
+                let mut c_expr = program.cron_expr.clone();
+                let parts: Vec<&str> = c_expr.split_whitespace().collect();
+                if parts.len() == 5 {
+                    c_expr = format!("0 {} *", c_expr);
+                }
+                if let Ok(schedule) = Schedule::from_str(&c_expr) {
                     if let Some(next) = schedule.upcoming(Utc).next() {
                         let diff = next.signed_duration_since(now).num_seconds();
                         // If the job is due within the next 60 seconds

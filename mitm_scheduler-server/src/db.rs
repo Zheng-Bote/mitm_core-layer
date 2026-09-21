@@ -65,7 +65,7 @@ impl Repository {
     }
 
     pub async fn get_enabled_programs(&self) -> Result<Vec<ScheduledProgram>, Box<dyn Error + Send + Sync>> {
-        let records: Vec<(i32, String, String, Option<String>, String, bool, bool)> = sqlx::query_as(
+        let records: Vec<(i32, String, String, Option<serde_json::Value>, String, bool, bool)> = sqlx::query_as(
             "SELECT id, name, command, args, cron_expr, enabled, restart_on_exit FROM scheduled_programs WHERE enabled = true",
         )
         .fetch_all(&self.pool)
@@ -84,12 +84,20 @@ impl Repository {
     }
 
     pub async fn create_program_run(&self, program_id: i32) -> Result<i32, Box<dyn Error + Send + Sync>> {
-        let record: (i32,) = sqlx::query_as(
-            "INSERT INTO program_runs (program_id, pid, started_at) VALUES ($1, 0, CURRENT_TIMESTAMP) RETURNING id",
-        )
-        .bind(program_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let record: (i32,) = if program_id <= 0 {
+            sqlx::query_as(
+                "INSERT INTO program_runs (pid, started_at) VALUES (0, CURRENT_TIMESTAMP) RETURNING id",
+            )
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as(
+                "INSERT INTO program_runs (program_id, pid, started_at) VALUES ($1, 0, CURRENT_TIMESTAMP) RETURNING id",
+            )
+            .bind(program_id)
+            .fetch_one(&self.pool)
+            .await?
+        };
         Ok(record.0)
     }
     
@@ -115,11 +123,13 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn get_program_by_id(&self, program_id: i32) -> Result<ScheduledProgram, Box<dyn Error + Send + Sync>> {
-        let r: (i32, String, String, Option<String>, String, bool, bool) = sqlx::query_as(
-            "SELECT id, name, command, args, cron_expr, enabled, restart_on_exit FROM scheduled_programs WHERE id = $1",
+
+
+    pub async fn get_program_by_name(&self, name: &str) -> Result<ScheduledProgram, Box<dyn Error + Send + Sync>> {
+        let r: (i32, String, String, Option<serde_json::Value>, String, bool, bool) = sqlx::query_as(
+            "SELECT id, name, command, args, cron_expr, enabled, restart_on_exit FROM scheduled_programs WHERE name = $1",
         )
-        .bind(program_id)
+        .bind(name)
         .fetch_one(&self.pool)
         .await?;
 
@@ -140,6 +150,6 @@ pub struct ScheduledProgram {
     pub name: String,
     pub command: String,
     pub cron_expr: String,
-    pub args: Option<String>,
+    pub args: Option<serde_json::Value>,
     pub restart_on_exit: bool,
 }

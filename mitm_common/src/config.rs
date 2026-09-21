@@ -28,7 +28,7 @@ pub struct DBConnectionConfig {
 
 fn default_db_connect_delay() -> u64 { 5 }
 fn default_sslmode() -> bool { true }
-fn default_max_conns() -> u32 { 50 }
+fn default_max_conns() -> u32 { 5 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DBConfig {
@@ -203,9 +203,12 @@ fn apply_certificate_fallback(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
     cfg
 }
 
-fn apply_socket_fallback(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
+fn apply_path_fallbacks(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
     if cfg.socket_dir.is_empty() {
         cfg.socket_dir = exe_dir.join("run").to_string_lossy().to_string();
+    }
+    if cfg.upload_dir.is_empty() {
+        cfg.upload_dir = exe_dir.join("mitm_uploads").to_string_lossy().to_string();
     }
     cfg
 }
@@ -219,7 +222,7 @@ pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, 
         if !path.is_empty() {
             if let Ok(cfg) = load_encrypted_config(path, password) {
                 log::info!("Loaded config from parameter: {}", path);
-                return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
+                return Ok(apply_path_fallbacks(apply_certificate_fallback(cfg, exe_dir), exe_dir));
             }
             log::warn!("Failed to load config from parameter {}. Falling back.", path);
         }
@@ -229,26 +232,26 @@ pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, 
     if !get_env_str("MITM_DB_HOST", "").is_empty() {
         let cfg = load_from_env(exe_dir);
         log::info!("Loaded config from Environment Variables.");
-        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
+        return Ok(apply_path_fallbacks(apply_certificate_fallback(cfg, exe_dir), exe_dir));
     }
 
     // 3. Try Default files
     let default_path = exe_dir.join("config.enc");
     if let Ok(cfg) = load_encrypted_config(&default_path.to_string_lossy(), password) {
         log::info!("Loaded config from default path: {:?}", default_path);
-        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
+        return Ok(apply_path_fallbacks(apply_certificate_fallback(cfg, exe_dir), exe_dir));
     }
 
     let fallback_path = exe_dir.join("cfg").join("config.enc");
     if let Ok(cfg) = load_encrypted_config(&fallback_path.to_string_lossy(), password) {
         log::info!("Loaded config from fallback path: {:?}", fallback_path);
-        return Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir));
+        return Ok(apply_path_fallbacks(apply_certificate_fallback(cfg, exe_dir), exe_dir));
     }
 
     // 4. Fallback to internal defaults
     log::warn!("No config file or ENVs found. Falling back to internal defaults.");
     let cfg = apply_internal_defaults(exe_dir);
-    Ok(apply_socket_fallback(apply_certificate_fallback(cfg, exe_dir), exe_dir))
+    Ok(apply_path_fallbacks(apply_certificate_fallback(cfg, exe_dir), exe_dir))
 }
 
 #[cfg(test)]

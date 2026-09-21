@@ -19,6 +19,8 @@ pub fn routes() -> Router<AppState> {
         .route("/key-rotation", post(handle_key_rotation))
         .route("/storage-keys", get(handle_get_storage_keys))
         .route("/dashboard/stats", get(handle_dashboard_stats))
+        .route("/credentials", get(handle_credentials))
+        .route("/delivery_targets", get(handle_delivery_targets))
 }
 
 #[derive(Deserialize)]
@@ -366,7 +368,7 @@ async fn handle_dashboard_stats(
         db_info.version.clone()
     };
 
-    let dlq_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dlq")
+    let dlq_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dead_letter_queue")
         .fetch_one(&state.repo.pool)
         .await
         .unwrap_or((0,));
@@ -379,4 +381,12 @@ async fn handle_dashboard_stats(
     };
 
     (StatusCode::OK, Json(stats)).into_response()
+}
+
+pub async fn handle_credentials() -> impl IntoResponse {
+    (axum::http::StatusCode::OK, axum::Json(serde_json::json!([]))).into_response()
+}
+
+pub async fn handle_delivery_targets() -> impl IntoResponse {
+    (axum::http::StatusCode::OK, axum::Json(serde_json::json!([]))).into_response()
 }

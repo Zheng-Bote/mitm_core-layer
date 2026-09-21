@@ -100,8 +100,13 @@ impl JobOrchestrator {
                 log::info!("Starting job {} (RunID: {})", program.name, run_id);
                 let _ = repo.log_system("INFO", "Scheduler", &format!("Starting job {}", program.name)).await;
 
-                let args_json = program.args.clone().unwrap_or_else(|| "{}".to_string());
-                let mut cmd = Command::new(&program.command);
+                let args_json = program.args.as_ref().map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
+                let exe_path = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                let exe_dir = exe_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+                let bin_dir = exe_dir.join("bin");
+                let cmd_path = bin_dir.join(&program.command);
+                let mut cmd = Command::new(&cmd_path);
+                cmd.current_dir(&bin_dir);
                 cmd.arg(&args_json);
                 cmd.stdout(Stdio::piped());
                 cmd.stderr(Stdio::piped());
@@ -110,7 +115,7 @@ impl JobOrchestrator {
                 cmd.env_clear();
                 for (key, val) in env::vars() {
                     let key_upper = key.to_uppercase();
-                    if whitelist.contains(&key_upper.as_str()) {
+                    if whitelist.contains(&key_upper.as_str()) || key_upper.starts_with("MITM_") {
                         cmd.env(key, val);
                     }
                 }

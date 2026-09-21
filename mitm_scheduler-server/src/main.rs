@@ -49,7 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Scheduler listening for Job events on UDS {:?}", socket_path);
 
     let repo = Arc::new(repo);
-    let _ = repo.log_system("INFO", "scheduler-server", &format!("Starting {} v{}", APP_NAME, VERSION)).await;
+    let success_msg = format!("{} ({}) started successfully", APP_NAME, VERSION);
+    log::info!("{}", success_msg);
+    let _ = repo.log_system("INFO", "scheduler-server", &success_msg).await;
+
     let socket_path_str = socket_path.to_string_lossy().to_string();
     let orchestrator = Arc::new(JobOrchestrator::new(repo.clone(), socket_path_str));
     let cron_scheduler = CronScheduler::new(repo.clone(), orchestrator.clone());
@@ -59,21 +62,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let master_key_str = password.clone();
-    let db_config_json = serde_json::to_string(&config.db).unwrap_or_else(|_| "{}".to_string());
+    let db_config_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                log::info!("Received Ctrl-C, gracefully shutting down scheduler...");
+                let shutdown_msg = "Shutting down...";
+                log::info!("{}", shutdown_msg);
+                let _ = repo.log_system("INFO", "scheduler-server", shutdown_msg).await;
                 orchestrator.stop_all().await;
                 // Wait briefly for jobs to receive the signal
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 break;
             }
             _ = sigterm.recv() => {
-                log::info!("Received SIGTERM, gracefully shutting down scheduler...");
+                let shutdown_msg = "Shutting down...";
+                log::info!("{}", shutdown_msg);
+                let _ = repo.log_system("INFO", "scheduler-server", shutdown_msg).await;
                 orchestrator.stop_all().await;
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 break;
@@ -95,6 +102,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 
                                 use mitm_common::ipc::SchedulerRequest;
                                 match serde_json::from_str::<SchedulerRequest>(&line) {
+                                    Ok(SchedulerRequest::RunImmediateJob(req)) => {
+                                        log::info!("RunImmediateJob: {}", req.command);
+                                        let orch = orch.clone();
+                                        tokio::spawn(async move {
+                                            use crate::db::ScheduledProgram;
+                                            let prog = ScheduledProgram {
+                                                id: -1,
+                                                name: "Immediate_Trigger".to_string(),
+                                                command: req.command,
+                                                args: if req.args.is_empty() { None } else { serde_json::from_str(&req.args).ok() },
+                                                cron_expr: "".to_string(),
+                                                restart_on_exit: false,
+                                            };
+                                            let _ = orch.run_job(prog).await;
+                                        });
+                                    }
                                     Ok(SchedulerRequest::Status(event)) => {
                                         log::info!("Job Event [Run {}]: {} - {}", event.run_id, event.status, event.message);
                                         if let Err(e) = repo.log_job_event(event.run_id, &event.status, &event.message, event.progress).await {
@@ -121,29 +144,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             let _ = writer.write_all(out.as_bytes()).await;
                                         }
                                     }
-                                    Ok(SchedulerRequest::ExecuteJob(job_id)) => {
-                                        log::info!("API requested ExecuteJob for job {}", job_id);
+                                    Ok(SchedulerRequest::ExecuteJob { job_name }) => {
+                                        log::info!("API requested ExecuteJob for job {}", job_name);
                                         let orch_clone = orch.clone();
                                         let repo_clone = repo.clone();
                                         tokio::spawn(async move {
-                                            if let Ok(prog) = repo_clone.get_program_by_id(job_id).await {
+                                            if let Ok(prog) = repo_clone.get_program_by_name(&job_name).await {
                                                 if let Err(e) = orch_clone.run_job(prog).await {
-                                                    log::error!("Failed to execute job {}: {}", job_id, e);
+                                                    let err_msg = format!("Failed to execute job {}: {}", job_name, e);
+                                                    log::error!("{}", err_msg);
+                                                    let _ = repo_clone.log_system("ERROR", "scheduler", &err_msg).await;
                                                 }
                                             } else {
-                                                log::error!("Failed to fetch job {}", job_id);
+                                                let err_msg = format!("Failed to fetch job {}", job_name);
+                                                log::error!("{}", err_msg);
+                                                let _ = repo_clone.log_system("ERROR", "scheduler", &err_msg).await;
                                             }
                                         });
                                     }
-                                    Ok(SchedulerRequest::StopJob(job_id)) => {
-                                        log::info!("API requested StopJob for job {}", job_id);
-                                        orch.stop_job(job_id).await;
+                                    Ok(SchedulerRequest::StopJob { job_name }) => {
+                                        log::info!("API requested StopJob for job {}", job_name);
+                                        let repo_c = repo.clone(); let orch_c = orch.clone(); tokio::spawn(async move { if let Ok(prog) = repo_c.get_program_by_name(&job_name).await { orch_c.stop_job(prog.id).await; } });
                                     }
                                     Ok(SchedulerRequest::UpdateJobs) => {
                                         log::info!("API requested UpdateJobs, reloading scheduler config");
                                     }
                                     Err(e) => {
-                                        log::error!("Invalid Job Status JSON: {}", e);
+                                        let err_msg = format!("Invalid Job Status JSON: {}", e);
+                                        log::error!("{}", err_msg);
+                                        let _ = repo.log_system("ERROR", "scheduler", &err_msg).await;
                                     }
                                 }
                                 line.clear();
@@ -151,7 +180,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         });
                     }
                     Err(e) => {
-                        log::error!("Failed to accept connection: {}", e);
+                        let err_msg = format!("Failed to accept connection: {}", e);
+                        log::error!("{}", err_msg);
+                        let _ = repo.log_system("ERROR", "scheduler", &err_msg).await;
                     }
                 }
             }

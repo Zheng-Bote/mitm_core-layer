@@ -67,14 +67,40 @@ impl Repository {
         Ok(record.0)
     }
 
-    pub async fn assign_role(&self, user_id: i32, role_id: i32) -> Result<(), Box<dyn Error>> {
-        sqlx::query(
-            "INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(user_id)
-        .bind(role_id)
-        .execute(&self.pool)
-        .await?;
+    pub async fn assign_role(&self, user_id: i32, role_id: i32, kek: &[u8]) -> Result<(), Box<dyn Error>> {
+        let mut role_ids: Vec<i32> = match sqlx::query_as::<_, (Vec<u8>, Vec<u8>, Vec<u8>)>("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool).await? {
+                Some((wrapped_dek, nonce, encrypted_roles)) => {
+                    let plaintext = crypto::envelope_decrypt(kek, &wrapped_dek, &nonce, &encrypted_roles)?;
+                    serde_json::from_slice(&plaintext)?
+                },
+                None => vec![]
+            };
+
+        if !role_ids.contains(&role_id) {
+            role_ids.push(role_id);
+            let roles_json = serde_json::to_vec(&role_ids)?;
+
+            let wrapped_dek = crypto::generate_wrapped_dek(kek)?;
+            let (ciphertext, nonce) = crypto::envelope_encrypt(kek, &wrapped_dek, &roles_json)?;
+
+            sqlx::query(
+                "INSERT INTO user_roles_encrypted (user_id, wrapped_dek, nonce, encrypted_roles) 
+                 VALUES ($1, $2, $3, $4) 
+                 ON CONFLICT (user_id) DO UPDATE SET 
+                 wrapped_dek = EXCLUDED.wrapped_dek, 
+                 nonce = EXCLUDED.nonce, 
+                 encrypted_roles = EXCLUDED.encrypted_roles, 
+                 updated_at = CURRENT_TIMESTAMP"
+            )
+            .bind(user_id)
+            .bind(wrapped_dek)
+            .bind(nonce)
+            .bind(ciphertext)
+            .execute(&self.pool)
+            .await?;
+        }
         Ok(())
     }
 
@@ -116,17 +142,38 @@ impl Repository {
         Ok(false)
     }
 
-    pub async fn get_user_roles(&self, username: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    pub async fn get_user_roles(&self, username: &str, kek: &[u8]) -> Result<Vec<String>, Box<dyn Error>> {
+        let record: Option<(i32,)> = sqlx::query_as("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
+            .bind(username)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let user_id = match record {
+            Some(r) => r.0,
+            None => return Ok(vec![]),
+        };
+
+        let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let (wrapped_dek, nonce, encrypted_roles) = match row {
+            Some(r) => r,
+            None => return Ok(vec![]),
+        };
+
+        let plaintext = crypto::envelope_decrypt(kek, &wrapped_dek, &nonce, &encrypted_roles)?;
+        let role_ids: Vec<i32> = serde_json::from_slice(&plaintext)?;
+
+        if role_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
         let records: Vec<(String,)> = sqlx::query_as(
-            r#"
-            SELECT r.name 
-            FROM roles r 
-            JOIN user_roles ur ON r.id = ur.role_id 
-            JOIN admin_users u ON u.id = ur.user_id 
-            WHERE u.username = $1 AND u.is_active = true
-            "#
+            "SELECT name FROM roles WHERE id = ANY($1)"
         )
-        .bind(username)
+        .bind(&role_ids)
         .fetch_all(&self.pool)
         .await?;
 
@@ -134,7 +181,7 @@ impl Repository {
     }
 }
 
-pub async fn bootstrap_admins(repo: &Repository, config: &DBConfig) {
+pub async fn bootstrap_admins(repo: &Repository, config: &DBConfig, kek: &[u8]) {
     let admin_role_id = match repo.get_admin_role_id().await {
         Ok(Some(id)) => id,
         Ok(None) => {
@@ -168,7 +215,7 @@ pub async fn bootstrap_admins(repo: &Repository, config: &DBConfig) {
             }
         };
 
-        if let Err(e) = repo.assign_role(user_id, admin_role_id).await {
+        if let Err(e) = repo.assign_role(user_id, admin_role_id, kek).await {
             log::error!("Failed to assign ADMIN role to user {}: {}", admin_cfg.username, e);
         }
     }

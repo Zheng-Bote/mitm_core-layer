@@ -33,6 +33,8 @@ pub enum IpcResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
+#[serde(default)]
 pub struct StatusEvent {
     pub run_id: i32,
     pub component: String,
@@ -42,6 +44,8 @@ pub struct StatusEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
+#[serde(default)]
 pub struct AuditEvent {
     pub run_id: i32,
     pub component: String,
@@ -56,6 +60,9 @@ pub struct GetCredentialsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SchedulerRequest {
+    #[serde(rename = "run_immediate_job")]
+    RunImmediateJob(RunImmediateJob),
+
     #[serde(rename = "status")]
     Status(StatusEvent),
     #[serde(rename = "audit")]
@@ -63,9 +70,9 @@ pub enum SchedulerRequest {
     #[serde(rename = "get_credentials")]
     GetCredentials(GetCredentialsRequest),
     #[serde(rename = "execute_job")]
-    ExecuteJob(i32),
+    ExecuteJob { job_name: String },
     #[serde(rename = "stop_job")]
-    StopJob(i32),
+    StopJob { job_name: String },
     #[serde(rename = "update_jobs")]
     UpdateJobs,
 }
@@ -74,4 +81,21 @@ pub enum SchedulerRequest {
 pub struct CredentialsResponse {
     pub master_key: String,
     pub db_config_json: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_serde() {
+        let req = SchedulerRequest::ExecuteJob { job_name: "clean up".to_string() };
+        println!("{}", serde_json::to_string(&req).unwrap());
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone)]
+pub struct RunImmediateJob {
+    pub command: String,
+    pub args: String,
 }

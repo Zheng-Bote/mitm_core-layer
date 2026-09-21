@@ -92,3 +92,96 @@ mod tests {
         assert!(decrypted.is_err());
     }
 }
+
+pub fn envelope_decrypt(kek: &[u8], wrapped_key: &[u8], payload_nonce: &[u8], payload: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut adjusted_kek = [0u8; 32];
+    let len = std::cmp::min(kek.len(), 32);
+    adjusted_kek[..len].copy_from_slice(&kek[..len]);
+
+    if wrapped_key.len() < 12 {
+        return Err("wrapped DEK too short".into());
+    }
+    
+    let dek_nonce = Nonce::from_slice(&wrapped_key[..12]);
+    let wrapped_cipher = &wrapped_key[12..];
+
+    let kek_cipher = Aes256Gcm::new_from_slice(&adjusted_kek).map_err(|e| format!("Invalid KEK: {:?}", e))?;
+    let dek = kek_cipher.decrypt(dek_nonce, wrapped_cipher)
+        .map_err(|e| format!("Failed to decrypt DEK: {:?}", e))?;
+
+    let dek_cipher = Aes256Gcm::new_from_slice(&dek).map_err(|e| format!("Invalid DEK: {:?}", e))?;
+    
+    let nonce = Nonce::from_slice(payload_nonce);
+    let plaintext = dek_cipher.decrypt(nonce, payload)
+        .map_err(|e| format!("Failed to decrypt payload: {:?}", e))?;
+
+    Ok(plaintext)
+}
+
+pub fn generate_wrapped_dek(kek: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut adjusted_kek = [0u8; 32];
+    let len = std::cmp::min(kek.len(), 32);
+    adjusted_kek[..len].copy_from_slice(&kek[..len]);
+
+    let mut dek = [0u8; 32];
+    OsRng.fill_bytes(&mut dek);
+
+    let mut dek_nonce_bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut dek_nonce_bytes);
+    let dek_nonce = Nonce::from_slice(&dek_nonce_bytes);
+
+    let kek_cipher = Aes256Gcm::new_from_slice(&adjusted_kek).map_err(|e| format!("Invalid KEK: {:?}", e))?;
+    let wrapped_cipher = kek_cipher.encrypt(dek_nonce, dek.as_ref())
+        .map_err(|e| format!("Failed to encrypt DEK: {:?}", e))?;
+
+    let mut wrapped_key = Vec::with_capacity(dek_nonce_bytes.len() + wrapped_cipher.len());
+    wrapped_key.extend_from_slice(&dek_nonce_bytes);
+    wrapped_key.extend_from_slice(&wrapped_cipher);
+
+    Ok(wrapped_key)
+}
+
+pub fn envelope_encrypt(kek: &[u8], wrapped_key: &[u8], plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Box<dyn Error>> {
+    let mut adjusted_kek = [0u8; 32];
+    let len = std::cmp::min(kek.len(), 32);
+    adjusted_kek[..len].copy_from_slice(&kek[..len]);
+
+    if wrapped_key.len() < 12 {
+        return Err("wrapped DEK too short".into());
+    }
+
+    let dek_nonce = Nonce::from_slice(&wrapped_key[..12]);
+    let wrapped_cipher = &wrapped_key[12..];
+
+    let kek_cipher = Aes256Gcm::new_from_slice(&adjusted_kek).map_err(|e| format!("Invalid KEK: {:?}", e))?;
+    let dek = kek_cipher.decrypt(dek_nonce, wrapped_cipher)
+        .map_err(|e| format!("Failed to decrypt DEK: {:?}", e))?;
+
+    let dek_cipher = Aes256Gcm::new_from_slice(&dek).map_err(|e| format!("Invalid DEK: {:?}", e))?;
+
+    let mut payload_nonce_bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut payload_nonce_bytes);
+    let nonce = Nonce::from_slice(&payload_nonce_bytes);
+
+    let ciphertext = dek_cipher.encrypt(nonce, plaintext)
+        .map_err(|e| format!("Failed to encrypt payload: {:?}", e))?;
+
+    Ok((ciphertext, payload_nonce_bytes.to_vec()))
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+
+    #[test]
+    fn test_envelope_encrypt_decrypt() {
+        let kek = b"0123456789abcdef0123456789abcdef"; // 32 bytes
+        let plaintext = b"some secret role assignments json";
+
+        let wrapped_dek = generate_wrapped_dek(kek).unwrap();
+        let (ciphertext, payload_nonce) = envelope_encrypt(kek, &wrapped_dek, plaintext).unwrap();
+        let decrypted = envelope_decrypt(kek, &wrapped_dek, &payload_nonce, &ciphertext).unwrap();
+
+        assert_eq!(plaintext, decrypted.as_slice());
+    }
+}
