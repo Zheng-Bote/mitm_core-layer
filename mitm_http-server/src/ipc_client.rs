@@ -28,6 +28,7 @@ pub async fn authenticate_via_ipc(username: &str, token: &str, socket_path: &std
     match resp {
         IpcResponse::AuthenticateResult(result) => Ok(result),
         IpcResponse::Error(e) => Err(e),
+        _ => Err("Unexpected IPC response".to_string()),
     }
 }
 
@@ -107,4 +108,78 @@ pub async fn auth_middleware(
     req.extensions_mut().insert(auth_resp);
     
     next.run(req).await
+}
+
+pub async fn crypto_encrypt(wrapped_dek: Vec<u8>, plaintext: Vec<u8>, socket_path: &std::path::Path) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let mut stream = UnixStream::connect(socket_path).await
+        .map_err(|e| format!("Failed to connect to UDS: {}", e))?;
+    
+    let req = mitm_common::ipc::SchedulerRequest::CryptoEncrypt { wrapped_dek, plaintext };
+    let mut json_req = serde_json::to_string(&req).unwrap();
+    json_req.push('\n');
+    
+    stream.write_all(json_req.as_bytes()).await
+        .map_err(|e| format!("Failed to write: {}", e))?;
+    
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).await
+        .map_err(|e| format!("Failed to read: {}", e))?;
+    
+    let resp: IpcResponse = serde_json::from_str(&line)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    
+    match resp {
+        IpcResponse::CryptoEncryptResult { nonce, ciphertext } => Ok((nonce, ciphertext)),
+        IpcResponse::Error(e) => Err(e),
+        _ => Err("Unexpected IPC response".to_string()),
+    }
+}
+
+pub async fn crypto_decrypt(wrapped_dek: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8>, socket_path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let mut stream = UnixStream::connect(socket_path).await
+        .map_err(|e| format!("Failed to connect to UDS: {}", e))?;
+    
+    let req = mitm_common::ipc::SchedulerRequest::CryptoDecrypt { wrapped_dek, nonce, ciphertext };
+    let mut json_req = serde_json::to_string(&req).unwrap();
+    json_req.push('\n');
+    
+    stream.write_all(json_req.as_bytes()).await
+        .map_err(|e| format!("Failed to write: {}", e))?;
+    
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).await
+        .map_err(|e| format!("Failed to read: {}", e))?;
+    
+    let resp: IpcResponse = serde_json::from_str(&line)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    
+    match resp {
+        IpcResponse::CryptoDecryptResult { plaintext } => Ok(plaintext),
+        IpcResponse::Error(e) => Err(e),
+        _ => Err("Unexpected IPC response".to_string()),
+    }
+}
+
+pub async fn get_credentials(socket_path: &std::path::Path) -> Result<mitm_common::ipc::CredentialsResponse, String> {
+    let mut stream = UnixStream::connect(socket_path).await
+        .map_err(|e| format!("Failed to connect to UDS: {}", e))?;
+    
+    let req = mitm_common::ipc::SchedulerRequest::GetCredentials(mitm_common::ipc::GetCredentialsRequest { run_id: 0 });
+    let mut json_req = serde_json::to_string(&req).unwrap();
+    json_req.push('\n');
+    
+    stream.write_all(json_req.as_bytes()).await
+        .map_err(|e| format!("Failed to write: {}", e))?;
+    
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).await
+        .map_err(|e| format!("Failed to read: {}", e))?;
+    
+    let resp: mitm_common::ipc::CredentialsResponse = serde_json::from_str(&line)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    
+    Ok(resp)
 }

@@ -43,7 +43,7 @@ async fn handle_dlq(
     let offset = query.offset.unwrap_or(0);
 
     let sql = "SELECT id, package_id, payload, error_code, error_message, failed_at, resolved, resolved_at FROM dead_letter_queue ORDER BY failed_at DESC LIMIT $1 OFFSET $2";
-    match sqlx::query_as::<_, DlqEntry>(sql).bind(limit).bind(offset).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, DlqEntry>(sql).bind(limit).bind(offset).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(entries) => (StatusCode::OK, Json(entries)).into_response(),
         Err(e) => {
             let err_msg = format!("Database Error: {}", e);
@@ -61,7 +61,7 @@ pub async fn handle_dlq_bin(
     let offset = query.offset.unwrap_or(0);
 
     let sql = "SELECT id, package_id, payload, error_code, error_message, failed_at, resolved, resolved_at FROM dead_letter_queue ORDER BY failed_at DESC LIMIT $1 OFFSET $2";
-    match sqlx::query_as::<_, DlqEntry>(sql).bind(limit).bind(offset).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, DlqEntry>(sql).bind(limit).bind(offset).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(entries) => {
             let mut builder = FlatBufferBuilder::new();
             let mut entry_offsets = Vec::new();
@@ -121,7 +121,7 @@ async fn handle_requeue(
     Json(payload): Json<RequeueRequest>,
 ) -> impl IntoResponse {
     let sql = "UPDATE dead_letter_queue SET resolved = true, resolved_at = NOW() WHERE id = ANY($1) RETURNING id";
-    match sqlx::query(sql).bind(&payload.ids).fetch_all(&state.repo.pool).await {
+    match sqlx::query(sql).bind(&payload.ids).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(rows) => {
             let updated: Vec<uuid::Uuid> = rows.iter().map(|r| r.get(0)).collect();
             (StatusCode::OK, Json(serde_json::json!({ "requeued": updated }))).into_response()

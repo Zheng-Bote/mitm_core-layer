@@ -82,7 +82,7 @@ async fn get_system_logs(state: &AppState, query: &LogQuery) -> Result<Vec<Syste
         qb.push(" OFFSET ");
         qb.push_bind(offset);
     }
-    qb.build_query_as::<SystemLog>().fetch_all(&state.repo.pool).await
+    qb.build_query_as::<SystemLog>().fetch_all(&state.repo.get().unwrap().pool).await
 }
 
 async fn handle_system_logs(
@@ -164,7 +164,7 @@ async fn get_job_audit_logs(state: &AppState, query: &LogQuery) -> Result<Vec<Jo
         qb.push(" OFFSET ");
         qb.push_bind(offset);
     }
-    qb.build_query_as::<JobAuditLog>().fetch_all(&state.repo.pool).await
+    qb.build_query_as::<JobAuditLog>().fetch_all(&state.repo.get().unwrap().pool).await
 }
 
 async fn handle_job_audit_logs(
@@ -245,7 +245,7 @@ async fn get_admin_audit_logs(state: &AppState, query: &LogQuery) -> Result<Vec<
         qb.push(" OFFSET ");
         qb.push_bind(offset);
     }
-    qb.build_query_as::<AdminAuditLog>().fetch_all(&state.repo.pool).await
+    qb.build_query_as::<AdminAuditLog>().fetch_all(&state.repo.get().unwrap().pool).await
 }
 
 async fn handle_admin_audit_logs(

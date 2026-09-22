@@ -63,7 +63,7 @@ struct JobRow {
 async fn handle_get_jobs(State(state): State<AppState>) -> impl IntoResponse {
     let query = "SELECT sp.id, sp.name, sp.command, sp.args, sp.cron_expr, sp.enabled, sp.restart_on_exit, pr.pid as active_pid, CASE WHEN pr.id IS NOT NULL THEN true ELSE false END as is_running FROM scheduled_programs sp LEFT JOIN program_runs pr ON sp.id = pr.program_id AND pr.finished_at IS NULL ORDER BY sp.name ASC";
     match sqlx::query_as::<_, JobRow>(query)
-        .fetch_all(&state.repo.pool)
+        .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(rows) => {
@@ -129,7 +129,7 @@ async fn handle_update_jobs(
     State(state): State<AppState>,
     Json(jobs): Json<Vec<ScheduledProgram>>,
 ) -> impl IntoResponse {
-    let mut tx = match state.repo.pool.begin().await {
+    let mut tx = match state.repo.get().unwrap().pool.begin().await {
         Ok(tx) => tx,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response()
     };
@@ -185,7 +185,7 @@ async fn handle_delete_job(
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM scheduled_programs WHERE name = $1")
         .bind(query.name)
-        .execute(&state.repo.pool)
+        .execute(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(_) => {

@@ -158,6 +158,7 @@ fn apply_internal_defaults(exe_dir: &Path) -> DBConfig {
 }
 
 fn apply_certificate_fallback(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
+    let app_root = exe_dir.parent().unwrap_or(exe_dir);
     let check_fallback = |current_path: &str, filename: &str| -> String {
         if Path::new(current_path).exists() {
             return current_path.to_string();
@@ -165,6 +166,7 @@ fn apply_certificate_fallback(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
         let fallback_opts = [
             exe_dir.join(filename),
             exe_dir.join("certs").join(filename),
+            app_root.join("certs").join(filename),
         ];
         for opt in &fallback_opts {
             if opt.exists() {
@@ -204,11 +206,14 @@ fn apply_certificate_fallback(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
 }
 
 fn apply_path_fallbacks(mut cfg: DBConfig, exe_dir: &Path) -> DBConfig {
+    let app_root = exe_dir.parent().unwrap_or(exe_dir);
     if cfg.socket_dir.is_empty() {
-        cfg.socket_dir = exe_dir.join("run").to_string_lossy().to_string();
+        let root_run = app_root.join("run");
+        cfg.socket_dir = if root_run.exists() { root_run.to_string_lossy().to_string() } else { exe_dir.join("run").to_string_lossy().to_string() };
     }
     if cfg.upload_dir.is_empty() {
-        cfg.upload_dir = exe_dir.join("mitm_uploads").to_string_lossy().to_string();
+        let root_uploads = app_root.join("mitm_uploads");
+        cfg.upload_dir = if root_uploads.exists() { root_uploads.to_string_lossy().to_string() } else { exe_dir.join("mitm_uploads").to_string_lossy().to_string() };
     }
     cfg
 }

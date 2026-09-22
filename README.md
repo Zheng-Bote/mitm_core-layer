@@ -1,4 +1,4 @@
-# MitM-2 Core Layer (Rust)
+# MitM-2 Core Layer
 
 This repository contains the newly ported, Rust-based **core-layer** microservices for the MitM-2 Data Aggregator system. It serves as a drop-in replacement for the legacy Go architecture, providing memory safety, high concurrency via Tokio, and robust cryptographic abstractions.
 

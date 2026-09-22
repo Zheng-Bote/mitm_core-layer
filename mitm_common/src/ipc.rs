@@ -30,6 +30,10 @@ pub enum IpcResponse {
     AuthenticateResult(AuthResponse),
     #[serde(rename = "error")]
     Error(String),
+    #[serde(rename = "crypto_encrypt_result")]
+    CryptoEncryptResult { nonce: Vec<u8>, ciphertext: Vec<u8> },
+    #[serde(rename = "crypto_decrypt_result")]
+    CryptoDecryptResult { plaintext: Vec<u8> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +79,10 @@ pub enum SchedulerRequest {
     StopJob { job_name: String },
     #[serde(rename = "update_jobs")]
     UpdateJobs,
+    #[serde(rename = "crypto_encrypt")]
+    CryptoEncrypt { wrapped_dek: Vec<u8>, plaintext: Vec<u8> },
+    #[serde(rename = "crypto_decrypt")]
+    CryptoDecrypt { wrapped_dek: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

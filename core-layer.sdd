@@ -1,0 +1,33 @@
+Spec: Core Layer
+
+Purpose:
+  Orchestration, Identity & Access Management (IAM), and HTTP Gateway for the MitM Data Aggregator. This layer operates as a single unified ECS Task.
+
+Platform: Rust/Linux
+
+Structure:
+  ./mitm_http-server
+  ./mitm_iam-server
+  ./mitm_scheduler-server
+  ./mitm_common
+
+Must:
+  `mitm-core-http` is the main container process (PID 1) and supervises `mitm-core-iam` and `mitm-core-scheduler` using `tokio::process::Command`.
+  `mitm-core-http` immediately answers `HTTP 200 OK` on `/health` to satisfy AWS ECS checks.
+  Initial configuration (`config.enc` or ENV) is parsed independently by each binary. `mitm-core-http` passes the configuration file path to the child processes via CLI arguments.
+  `mitm-core-scheduler` owns and protects the Master Key (KEK) and provides DB credentials via the IPC Unix Socket (`/app/run/mitm_scheduler.sock`).
+  `mitm-core-http` and `mitm-core-iam` run a retry/backoff loop to connect to the UDS sockets.
+  `mitm-core-http` blocks all functional API routes (returns `HTTP 503`) until the UDS IPC connections are successfully established.
+  Database logging in HTTP and IAM components starts strictly AFTER the UDS connection to the Scheduler is established. During initialization, all logs must be written to STDOUT.
+  If a child process crashes, `mitm-core-http` logs a fatal error and exits (`std::process::exit(1)`) to trigger an ECS restart.
+  On SIGTERM, `mitm-core-http` forwards the signal to its children and waits for their graceful shutdown.
+
+Must not:
+  `mitm-core-http` must not load or hold the KEK directly in its memory space.
+
+Tasks:
+  [ ] Rust (`mitm_http-server`): Implement ECS Supervisor logic to spawn IAM and Scheduler via `tokio::process::Command`.
+  [ ] Rust (`mitm_http-server`): Implement `tokio::signal::unix` SIGTERM handling and propagate to child processes.
+  [ ] Rust (`mitm_http-server`): Implement Retry/Backoff loop for UDS connections to `/app/run/mitm_scheduler.sock`.
+  [ ] Rust (`mitm_http-server`): Implement 503 middleware for API routes while UDS is not ready (excluding the existing `/health`).
+  [ ] Rust (`mitm_http-server`, `mitm_iam-server`): Ensure DB logging is delayed until UDS connection to Scheduler is active; use STDOUT until then.

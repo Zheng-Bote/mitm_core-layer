@@ -48,35 +48,35 @@ pub struct TopicDependency { pub topic: String, pub required_sources: Vec<String
 
 async fn handle_sources(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, type, topic, version FROM mapping_source ORDER BY name LIMIT $1 OFFSET $2";
-    match sqlx::query_as::<_, MappingSource>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, MappingSource>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 async fn handle_targets(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, topic, field_name, data_type, is_required, encrypted, version FROM mapping_target_field ORDER BY topic LIMIT $1 OFFSET $2";
-    match sqlx::query_as::<_, MappingTargetField>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, MappingTargetField>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 async fn handle_rules(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, source_id, target_field_id, source_field, priority, transformation_chain, validation_chain, version FROM mapping_rule ORDER BY priority LIMIT $1 OFFSET $2";
-    match sqlx::query_as::<_, MappingRule>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, MappingRule>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 async fn handle_transformations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, description, parameters, version FROM mapping_transformation ORDER BY name LIMIT $1 OFFSET $2";
-    match sqlx::query_as::<_, MappingTransformation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, MappingTransformation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 async fn handle_validations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, description, parameters, version FROM mapping_validation ORDER BY name LIMIT $1 OFFSET $2";
-    match sqlx::query_as::<_, MappingValidation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, MappingValidation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
@@ -103,7 +103,7 @@ async fn handle_errors(State(state): State<AppState>, Query(query): Query<Pagina
     builder.push(" OFFSET ");
     builder.push_bind(query.offset.unwrap_or(0));
 
-    match builder.build_query_as::<TransformationError>().fetch_all(&state.repo.pool).await {
+    match builder.build_query_as::<TransformationError>().fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
@@ -129,7 +129,7 @@ async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<Pa
     builder.push(" OFFSET ");
     builder.push_bind(query.offset.unwrap_or(0));
 
-    match builder.build_query_as::<TransformationError>().fetch_all(&state.repo.pool).await {
+    match builder.build_query_as::<TransformationError>().fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => {
             let mut fb = FlatBufferBuilder::new();
             let mut err_offsets = Vec::new();
@@ -172,7 +172,7 @@ async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<Pa
 }
 async fn handle_topic_dependencies(State(state): State<AppState>) -> impl IntoResponse {
     let sql = "SELECT topic, required_sources FROM topic_dependencies ORDER BY topic";
-    match sqlx::query_as::<_, TopicDependency>(sql).fetch_all(&state.repo.pool).await {
+    match sqlx::query_as::<_, TopicDependency>(sql).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
@@ -214,7 +214,7 @@ pub async fn handle_auto_map(
     }
 
     let targets = match sqlx::query_as::<_, MappingTargetField>("SELECT id, topic, field_name, data_type, is_required, encrypted, version FROM mapping_target_field")
-        .fetch_all(&state.repo.pool).await {
+        .fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(t) => t,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
     };
@@ -242,7 +242,7 @@ pub async fn handle_auto_map(
                 .bind(payload.source_id)
                 .bind(target.id)
                 .bind(sf)
-                .execute(&state.repo.pool).await {
+                .execute(&state.repo.get().unwrap().pool).await {
                 created += 1;
             }
         }

@@ -2,7 +2,7 @@ use axum::Router;
 use axum::routing::get;
 use std::sync::Arc;
 use axum::extract::State;
-use crate::db::Repository;
+
 
 pub mod admin;
 pub mod jobs;
@@ -13,9 +13,8 @@ pub mod transformation;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub repo: Arc<Repository>,
+    pub repo: Arc<tokio::sync::OnceCell<crate::db::Repository>>,
     pub config: Arc<mitm_common::config::DBConfig>,
-    pub kek: Arc<Vec<u8>>,
 }
 
 #[derive(serde::Serialize)]
@@ -41,9 +40,10 @@ async fn handle_info() -> axum::response::Response {
 }
 
 async fn handle_health(State(state): State<AppState>) -> axum::response::Response {
-    match sqlx::query("SELECT 1").execute(&state.repo.pool).await {
-        Ok(_) => axum::response::IntoResponse::into_response((axum::http::StatusCode::OK, "OK")),
-        Err(e) => axum::response::IntoResponse::into_response((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e))),
+    if state.repo.get().is_some() {
+        axum::response::IntoResponse::into_response((axum::http::StatusCode::OK, r#"{"status":"ready"}"#))
+    } else {
+        axum::response::IntoResponse::into_response((axum::http::StatusCode::OK, r#"{"status":"booting"}"#))
     }
 }
 

@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Scheduler listening for Job events on UDS {:?}", socket_path);
 
     let repo = Arc::new(repo);
-    let success_msg = format!("{} ({}) started successfully", APP_NAME, VERSION);
+    let success_msg = format!("Starting {} (v{})", APP_NAME, VERSION);
     log::info!("{}", success_msg);
     let _ = repo.log_system("INFO", "scheduler-server", &success_msg).await;
 
@@ -169,8 +169,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     Ok(SchedulerRequest::UpdateJobs) => {
                                         log::info!("API requested UpdateJobs, reloading scheduler config");
                                     }
+                                    Ok(SchedulerRequest::CryptoEncrypt { wrapped_dek, plaintext }) => {
+                                        use mitm_common::ipc::IpcResponse;
+                                        use tokio::io::AsyncWriteExt;
+                                        let resp = match mitm_common::crypto::envelope_encrypt(mk.as_bytes(), &wrapped_dek, &plaintext) {
+                                            Ok((nonce, ciphertext)) => IpcResponse::CryptoEncryptResult { nonce, ciphertext },
+                                            Err(e) => IpcResponse::Error(e.to_string()),
+                                        };
+                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                            let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                        }
+                                    }
+                                    Ok(SchedulerRequest::CryptoDecrypt { wrapped_dek, nonce, ciphertext }) => {
+                                        use mitm_common::ipc::IpcResponse;
+                                        use tokio::io::AsyncWriteExt;
+                                        let resp = match mitm_common::crypto::envelope_decrypt(mk.as_bytes(), &wrapped_dek, &nonce, &ciphertext) {
+                                            Ok(plaintext) => IpcResponse::CryptoDecryptResult { plaintext },
+                                            Err(e) => IpcResponse::Error(e.to_string()),
+                                        };
+                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                            let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                        }
+                                    }
                                     Err(e) => {
-                                        let err_msg = format!("Invalid Job Status JSON: {}", e);
+                                        let err_msg = format!("Invalid SchedulerRequest JSON: {}", e);
                                         log::error!("{}", err_msg);
                                         let _ = repo.log_system("ERROR", "scheduler", &err_msg).await;
                                     }

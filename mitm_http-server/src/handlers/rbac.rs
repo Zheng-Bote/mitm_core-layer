@@ -31,7 +31,7 @@ pub struct Role {
 
 async fn handle_get_roles(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, Role>("SELECT id, name FROM roles ORDER BY id ASC")
-        .fetch_all(&state.repo.pool)
+        .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(roles) => (StatusCode::OK, Json(roles)).into_response(),
@@ -57,7 +57,7 @@ pub struct User {
 
 async fn handle_get_users(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, User>("SELECT id, username, is_active FROM admin_users ORDER BY id ASC")
-        .fetch_all(&state.repo.pool)
+        .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(users) => (StatusCode::OK, Json(users)).into_response(),
@@ -102,7 +102,7 @@ async fn handle_create_user(
     match sqlx::query("INSERT INTO admin_users (username, password_hash, is_active) VALUES ($1, $2, true)")
         .bind(&payload.username)
         .bind(hash_str)
-        .execute(&state.repo.pool)
+        .execute(&state.repo.get().unwrap().pool)
         .await 
     {
         Ok(_) => StatusCode::CREATED.into_response(),
@@ -126,7 +126,7 @@ async fn handle_delete_user(
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM admin_users WHERE id = $1")
         .bind(query.id)
-        .execute(&state.repo.pool)
+        .execute(&state.repo.get().unwrap().pool)
         .await 
     {
         Ok(_) => StatusCode::OK.into_response(),
@@ -156,19 +156,26 @@ async fn handle_assign_roles(
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
         }
     };
-    
-    let wrapped_dek = match crypto::generate_wrapped_dek(&state.kek) {
-        Ok(w) => w,
-        Err(e) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Crypto error".into(), detail: Some(e.to_string()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
-        }
+    let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
+    let socket_path = socket_dir.join("mitm_scheduler.sock");
+
+    let active_dek_row = match sqlx::query("SELECT wrapped_key FROM storage_keys WHERE is_active = true LIMIT 1")
+        .fetch_optional(&state.repo.get().unwrap().pool)
+        .await
+    {
+        Ok(Some(row)) => {
+            use sqlx::Row;
+            row.get::<Vec<u8>, _>("wrapped_key")
+        },
+        Ok(None) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "No active key".into(), detail: None }] })).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response(),
     };
-    
-    let (ciphertext, nonce) = match crypto::envelope_encrypt(&state.kek, &wrapped_dek, &roles_json) {
+
+    let wrapped_dek = active_dek_row.clone();
+    let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(active_dek_row, roles_json, &socket_path).await {
         Ok(res) => res,
         Err(e) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Crypto error".into(), detail: Some(e.to_string()) }] };
+            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "IPC Crypto error".into(), detail: Some(e.to_string()) }] };
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
         }
     };
@@ -186,7 +193,7 @@ async fn handle_assign_roles(
     .bind(wrapped_dek)
     .bind(nonce)
     .bind(ciphertext)
-    .execute(&state.repo.pool)
+    .execute(&state.repo.get().unwrap().pool)
     .await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => {
@@ -207,7 +214,7 @@ async fn handle_get_user_roles(
 ) -> impl IntoResponse {
     let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = match sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
         .bind(query.user_id)
-        .fetch_optional(&state.repo.pool)
+        .fetch_optional(&state.repo.get().unwrap().pool)
         .await {
             Ok(r) => r,
             Err(_) => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
@@ -218,9 +225,12 @@ async fn handle_get_user_roles(
         None => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
     };
 
-    let plaintext = match crypto::envelope_decrypt(&state.kek, &wrapped_dek, &nonce, &encrypted_roles) {
+    let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
+    let socket_path = socket_dir.join("mitm_scheduler.sock");
+
+    let plaintext = match crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
         Ok(p) => p,
-        Err(_) => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
+        Err(_) => return (StatusCode::OK, axum::Json(Vec::<i32>::new())).into_response(),
     };
 
     let roles: Vec<i32> = serde_json::from_slice(&plaintext).unwrap_or_default();
@@ -238,7 +248,7 @@ async fn handle_get_os_user_roles(
 ) -> impl IntoResponse {
     let record: Option<(i32,)> = match sqlx::query_as("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
         .bind(&query.os_user)
-        .fetch_optional(&state.repo.pool)
+        .fetch_optional(&state.repo.get().unwrap().pool)
         .await {
             Ok(r) => r,
             Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
@@ -251,7 +261,7 @@ async fn handle_get_os_user_roles(
 
     let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = match sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
         .bind(user_id)
-        .fetch_optional(&state.repo.pool)
+        .fetch_optional(&state.repo.get().unwrap().pool)
         .await {
             Ok(r) => r,
             Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
@@ -262,9 +272,12 @@ async fn handle_get_os_user_roles(
         None => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
     };
 
-    let plaintext = match crypto::envelope_decrypt(&state.kek, &wrapped_dek, &nonce, &encrypted_roles) {
+    let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
+    let socket_path = socket_dir.join("mitm_scheduler.sock");
+
+    let plaintext = match crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
         Ok(p) => p,
-        Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
+        Err(_) => return (StatusCode::OK, axum::Json(Vec::<String>::new())).into_response(),
     };
 
     let role_ids: Vec<i32> = serde_json::from_slice(&plaintext).unwrap_or_default();
@@ -276,7 +289,7 @@ async fn handle_get_os_user_roles(
     let mut role_names = Vec::new();
     if let Ok(rows) = sqlx::query("SELECT name FROM roles WHERE id = ANY($1)")
         .bind(&role_ids)
-        .fetch_all(&state.repo.pool)
+        .fetch_all(&state.repo.get().unwrap().pool)
         .await {
             for row in rows {
                 use sqlx::Row;

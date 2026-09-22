@@ -45,7 +45,7 @@ async fn handle_action(
         .bind(username)
         .bind(&payload.action)
         .bind(details_json)
-        .execute(&state.repo.pool)
+        .execute(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(_) => StatusCode::OK.into_response(),
@@ -85,7 +85,7 @@ async fn handle_backup(State(state): State<AppState>) -> impl IntoResponse {
 
     for table in tables.iter() {
         let query_str = format!("SELECT row_to_json(t) FROM {} t", table);
-        let rows = match sqlx::query(&query_str).fetch_all(&state.repo.pool).await {
+        let rows = match sqlx::query(&query_str).fetch_all(&state.repo.get().unwrap().pool).await {
             Ok(r) => r,
             Err(e) => {
                 let err = ErrorResponse {
@@ -113,7 +113,7 @@ async fn handle_backup(State(state): State<AppState>) -> impl IntoResponse {
         .bind("admin")
         .bind("BACKUP_CONFIG")
         .bind(serde_json::json!({}))
-        .execute(&state.repo.pool)
+        .execute(&state.repo.get().unwrap().pool)
         .await;
 
     let payload = BackupPayload {
@@ -154,7 +154,7 @@ async fn handle_restore(
         "topic_dependencies",
     ];
 
-    let mut tx = match state.repo.pool.begin().await {
+    let mut tx = match state.repo.get().unwrap().pool.begin().await {
         Ok(t) => t,
         Err(e) => {
             let err = ErrorResponse {
@@ -218,7 +218,7 @@ async fn handle_restore(
         .bind("admin")
         .bind("RESTORE_CONFIG")
         .bind(serde_json::json!({}))
-        .execute(&state.repo.pool)
+        .execute(&state.repo.get().unwrap().pool)
         .await;
 
     StatusCode::OK.into_response()
@@ -270,7 +270,7 @@ async fn handle_key_rotation(
 
     // Crypto unwrap omitted as AppState.kek is not available and AES GCM wrapper not fully present in current context
     let _records = match sqlx::query_as::<_, StorageKeyRecord>("SELECT id, wrapped_key FROM storage_keys")
-        .fetch_all(&state.repo.pool)
+        .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(r) => r,
@@ -290,7 +290,7 @@ async fn handle_key_rotation(
         .bind("admin")
         .bind("key_rotation_success")
         .bind(serde_json::json!({"count": 0})) // mock count
-        .execute(&state.repo.pool)
+        .execute(&state.repo.get().unwrap().pool)
         .await;
 
     (StatusCode::OK, "Key rotation successful").into_response()
@@ -300,7 +300,7 @@ async fn handle_get_storage_keys(State(state): State<AppState>) -> impl IntoResp
     let mut keys = Vec::new();
 
     if let Ok(rows) = sqlx::query("SELECT wrapped_key FROM storage_keys WHERE is_active = true")
-        .fetch_all(&state.repo.pool)
+        .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
         for row in rows {
@@ -312,7 +312,7 @@ async fn handle_get_storage_keys(State(state): State<AppState>) -> impl IntoResp
     }
 
     if let Ok(rows) = sqlx::query("SELECT wrapped_dek FROM user_roles_encrypted")
-        .fetch_all(&state.repo.pool)
+        .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
         for row in rows {
@@ -345,7 +345,7 @@ async fn handle_dashboard_stats(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let db_info = match sqlx::query_as::<_, DbInfoRow>("SELECT current_database(), version(), pg_size_pretty(pg_database_size(current_database()))")
-        .fetch_one(&state.repo.pool)
+        .fetch_one(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(info) => info,
@@ -369,7 +369,7 @@ async fn handle_dashboard_stats(
     };
 
     let dlq_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dead_letter_queue")
-        .fetch_one(&state.repo.pool)
+        .fetch_one(&state.repo.get().unwrap().pool)
         .await
         .unwrap_or((0,));
 

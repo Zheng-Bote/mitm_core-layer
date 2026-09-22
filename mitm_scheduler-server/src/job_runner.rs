@@ -103,10 +103,9 @@ impl JobOrchestrator {
                 let args_json = program.args.as_ref().map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
                 let exe_path = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
                 let exe_dir = exe_path.parent().unwrap_or_else(|| std::path::Path::new("."));
-                let bin_dir = exe_dir.join("bin");
-                let cmd_path = bin_dir.join(&program.command);
+                let cmd_path = exe_dir.join(&program.command);
                 let mut cmd = Command::new(&cmd_path);
-                cmd.current_dir(&bin_dir);
+                cmd.current_dir(&exe_dir);
                 cmd.arg(&args_json);
                 cmd.stdout(Stdio::piped());
                 cmd.stderr(Stdio::piped());

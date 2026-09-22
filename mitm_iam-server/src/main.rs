@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     db::bootstrap_admins(&repo, &config, &kek).await;
 
     // Log startup
-    let success_msg = format!("{} ({}) started successfully", APP_NAME, VERSION);
+    let success_msg = format!("Starting {} (v{})", APP_NAME, VERSION);
     let _ = repo.log_system("INFO", "iam-server", &success_msg).await;
     log::info!("{}", success_msg);
 
@@ -77,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             
                             match serde_json::from_str::<IpcRequest>(&line) {
                                 Ok(IpcRequest::LogSystem { level, component, message }) => {
+
                                     if let Err(e) = repo.log_system(&level, &component, &message).await {
                                         log::error!("Failed to save LogSystem IPC: {}", e);
                                     }
@@ -87,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
                                     }
                                 }
+
                                 Err(e) => {
                                     let err_msg = format!("Invalid IPC JSON: {}", e);
                                     log::error!("{}", err_msg);
