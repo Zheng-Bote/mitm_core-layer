@@ -100,11 +100,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut iam_child = tokio::process::Command::new(&iam_path)
         .arg(config_arg)
+        .kill_on_drop(true)
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to spawn IAM server child process from {:?}: {}", iam_path, e));
         
     let mut scheduler_child = tokio::process::Command::new(&scheduler_path)
         .arg(config_arg)
+        .kill_on_drop(true)
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to spawn Scheduler child process from {:?}: {}", scheduler_path, e));
 
@@ -200,9 +202,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Supervisor Monitoring Loop & SIGTERM Handling
-    tokio::select! {
+    let exit_code = tokio::select! {
         _ = signal::ctrl_c() => {
             log::info!("Received Ctrl-C, shutting down gracefully...");
+            0
         },
         _ = async {
             #[cfg(unix)]
@@ -214,18 +217,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             #[cfg(not(unix))]
             std::future::pending::<()>().await;
-        } => {},
+        } => {
+            0
+        },
         // Wait on IAM process crash
         status = iam_child.wait() => {
             log::error!("FATAL: IAM server child exited unexpectedly with {:?}", status);
-            std::process::exit(1);
+            1
         },
         // Wait on Scheduler crash
         status = scheduler_child.wait() => {
             log::error!("FATAL: Scheduler server child exited unexpectedly with {:?}", status);
-            std::process::exit(1);
+            1
         }
-    }
+    };
 
     log::info!("Forwarding shutdown signals to children...");
     
@@ -236,6 +241,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Graceful Shutdown für den Webserver
     handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
 
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
 
     Ok(())
 }

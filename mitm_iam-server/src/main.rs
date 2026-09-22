@@ -49,6 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let socket_path = socket_dir.join("mitm_iam.sock");
     if socket_path.exists() {
+        if std::os::unix::net::UnixStream::connect(&socket_path).is_ok() {
+            log::error!("FATAL: Another instance of IAM server is already running! Exiting.");
+            std::process::exit(1);
+        }
         fs::remove_file(&socket_path)?;
     }
 
