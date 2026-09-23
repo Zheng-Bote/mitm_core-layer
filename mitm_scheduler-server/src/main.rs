@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         use mitm_common::ipc::IpcResponse;
                                         use tokio::io::AsyncWriteExt;
                                         let resp = match mitm_common::crypto::envelope_encrypt(&kek_clone, &wrapped_dek, &plaintext) {
-                                            Ok((nonce, ciphertext)) => IpcResponse::CryptoEncryptResult { nonce, ciphertext },
+                                            Ok((ciphertext, nonce)) => IpcResponse::CryptoEncryptResult { nonce, ciphertext },
                                             Err(e) => IpcResponse::Error(e.to_string()),
                                         };
                                         if let Ok(resp_json) = serde_json::to_string(&resp) {
