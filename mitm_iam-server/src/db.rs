@@ -130,13 +130,10 @@ impl Repository {
 
             let derived_hash = crypto::derive_key(password.as_bytes(), &salt)?;
             
-            // Constant time compare
-            let mut result = 0;
+            // Constant time compare using subtle
+            use subtle::ConstantTimeEq;
             if derived_hash.len() == stored_hash.len() {
-                for (a, b) in derived_hash.iter().zip(stored_hash.iter()) {
-                    result |= a ^ b;
-                }
-                return Ok(result == 0);
+                return Ok(derived_hash.ct_eq(&stored_hash).unwrap_u8() == 1);
             }
         }
         Ok(false)
