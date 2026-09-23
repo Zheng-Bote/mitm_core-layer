@@ -22,6 +22,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let password = env::var("MASTER_KEY").unwrap_or_else(|_| "".to_string());
     
+    // Decode MASTER_KEY if it is exactly 44 characters (Base64 encoding of 32 bytes), matching Go collectors
+    let kek = if password.len() == 44 {
+        use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+        BASE64.decode(&password).unwrap_or_else(|_| password.as_bytes().to_vec())
+    } else {
+        password.as_bytes().to_vec()
+    };
+    
     let config = match load_config(config_param, &password) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -33,7 +41,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo = db::Repository::new(&config).await?;
     log::info!("Connected to PostgreSQL at {}:{}", config.db.host, config.db.port);
 
-    let kek = password.as_bytes().to_vec();
     db::bootstrap_admins(&repo, &config, &kek).await;
 
     // Log startup

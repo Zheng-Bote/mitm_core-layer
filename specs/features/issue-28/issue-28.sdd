@@ -1,0 +1,24 @@
+Spec: Feature Issue 28 - KEK Decoding Mismatch
+
+Purpose:
+  Ensure the `MASTER_KEY` environment variable is base64-decoded in the IAM server (and any component deriving the Envelope Encryption KEK) so it aligns exactly with the behavior of the Go collectors. Additionally, use `subtle::ConstantTimeEq` in the IAM database authentication for secure timing-attack prevention.
+
+Platform: Rust/Linux
+
+References:
+  ../../../core-layer.sdd
+
+Owns:
+  ./**
+
+Can modify:
+  /mitm_iam-server/src/main.rs
+  /mitm_iam-server/src/db.rs
+
+Must:
+  If the `MASTER_KEY` is a 44-character string (valid length for 32-byte base64), decode it using `base64::Engine` before using it as the KEK in `mitm_iam-server/src/main.rs`.
+  Use `subtle::ConstantTimeEq` instead of manual XOR for password verification in `mitm_iam-server/src/db.rs`.
+
+Tasks:
+  [x] #1 Decode `MASTER_KEY` via base64 in `mitm_iam-server/src/main.rs` if length is 44.
+  [x] #2 Update `mitm_iam-server/src/db.rs` to use `subtle::ConstantTimeEq` for password hash comparison.
