@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Issue #30**: Decoded `MASTER_KEY` from Base64 (if 44 chars) to properly decrypt the DEK during IPC `CryptoEncrypt`/`CryptoDecrypt` requests from the HTTP server.
+- **Issue #30**: Fixed swapped `nonce` and `ciphertext` variables in `CryptoEncrypt` IPC response, which caused the DB to store invalid nonces and subsequently crash during decryption.
 
 ## [1.0.0] - 2026-09-20
 
