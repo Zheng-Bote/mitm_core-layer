@@ -136,6 +136,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(repo) = db::Repository::new(&parsed_cfg).await {
                                     if repo_cell_for_uds.set(repo).is_ok() {
                                         log::info!("Database initialized successfully. 503 Middleware lifted!");
+                                        let success_msg = format!("Starting {} (v{})", APP_NAME, VERSION);
+                                        let _ = repo_cell_for_uds.get().unwrap().log_system("INFO", "http-server", &success_msg).await;
                                         
                                         // Build true app state with the correct config
                                         let app_state = handlers::AppState { 

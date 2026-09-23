@@ -147,6 +147,7 @@ pub struct AssignRolesReq {
 
 async fn handle_assign_roles(
     State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Json(payload): Json<AssignRolesReq>,
 ) -> impl IntoResponse {
     let roles_json = match serde_json::to_vec(&payload.role_ids) {
@@ -195,7 +196,15 @@ async fn handle_assign_roles(
     .bind(ciphertext)
     .execute(&state.repo.get().unwrap().pool)
     .await {
-        Ok(_) => StatusCode::OK.into_response(),
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username)
+                .bind("assign_roles")
+                .bind(serde_json::json!({"user_id": payload.user_id, "roles": payload.role_ids}))
+                .execute(&state.repo.get().unwrap().pool)
+                .await;
+            StatusCode::OK.into_response()
+        },
         Err(e) => {
             let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB error".into(), detail: Some(e.to_string()) }] };
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
