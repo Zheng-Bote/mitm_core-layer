@@ -74,10 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     let config_param = args.get(1).map(|s| s.as_str());
     
-    // TASK 3: Keine direkten MASTER_KEY / KEK Umgebungsvariablen mehr!
-    // Da config.json laut Ihrer Aussage ohnehin unverschlüsselt ist,
-    // können wir das leere Passwort nutzen.
-    let config = match load_config(config_param, "") {
+    // Read MASTER_KEY to decrypt config.enc (fallback to empty string for unencrypted json)
+    let password = env::var("MASTER_KEY").unwrap_or_else(|_| "".to_string());
+    let config = match load_config(config_param, &password) {
         Ok(cfg) => cfg,
         Err(e) => {
             log::error!("Failed to load configuration: {}", e);

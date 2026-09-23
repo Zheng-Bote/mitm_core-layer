@@ -55,65 +55,37 @@ Or run the specific legacy build script if you need Musl targets:
 ./build.sh
 ```
 
-## Docker Deployment (Example)
+## Process Orchestration (Supervisor Pattern)
 
-To deploy the system in an isolated container environment, you can use the following example `Dockerfile` and startup sequence. It uses a lightweight Alpine image and supervisord to run all binaries.
+The core layer utilizes an embedded supervisor architecture, entirely removing the need for external tools like `supervisord` or `s6-overlay`. When deployed (e.g., via Docker to AWS ECS), the HTTP server acts as the central Orchestrator (PID 1).
 
-### `Dockerfile`
+### Startup Sequence & Architecture
 
-```dockerfile
-# Build Stage
-FROM rust:1.80-alpine AS builder
-RUN apk add --no-cache musl-dev
-WORKDIR /usr/src/mitm-core
-COPY . .
-RUN cargo build --workspace --release
+```mermaid
+flowchart TD
+    AWS[Container Runtime / AWS ECS] -->|ENTRYPOINT + CMD\n/app/bin/mitm-core-http /app/cfg/config.enc| HTTP(mitm-core-http<br/>Supervisor & API Gateway<br/>PID 1)
 
-# Runtime Stage
-FROM alpine:3.19
-RUN apk add --no-cache supervisor
-WORKDIR /app
+    HTTP -->|Spawns Child Process<br/>Arg: /app/cfg/config.enc| IAM(mitm-core-iam<br/>IAM & Crypto Server)
+    HTTP -->|Spawns Child Process<br/>Arg: /app/cfg/config.enc| Sched(mitm-core-scheduler<br/>Job Orchestration)
 
-# Copy binaries
-COPY --from=builder /usr/src/mitm-core/target/release/mitm-iam-server /app/
-COPY --from=builder /usr/src/mitm-core/target/release/mitm-scheduler-server /app/
-COPY --from=builder /usr/src/mitm-core/target/release/mitm-http-server /app/
-
-# Setup Supervisor
-COPY supervisord.conf /etc/supervisord.conf
-
-# Set required environment variables (in production, use Docker secrets / .env files)
-
-EXPOSE 8080
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+    subgraph Decentralized Configuration Loading
+        direction BT
+        Env[MASTER_KEY Env Var]
+        Config[Encrypted Config File]
+        
+        HTTP -.-> Env
+        HTTP -.-> Config
+        IAM -.-> Env
+        IAM -.-> Config
+        Sched -.-> Env
+        Sched -.-> Config
+    end
 ```
 
-### Startup Sequence (`supervisord.conf`)
-
-Since the HTTP Server and Scheduler Server depend on the IAM Server (for cryptographic keys and RBAC) and the Database, the startup sequence should prioritize the IAM daemon:
-
-```ini
-[supervisord]
-nodaemon=true
-
-[program:iam-server]
-command=/app/mitm-iam-server
-autostart=true
-autorestart=true
-priority=10
-
-[program:scheduler-server]
-command=/app/mitm-scheduler-server
-autostart=true
-autorestart=true
-priority=20
-
-[program:http-server]
-command=/app/mitm-http-server
-autostart=true
-autorestart=true
-priority=30
-```
+1. **Initialization:** The container runtime starts `mitm-core-http` as PID 1, passing the path to the configuration file via CLI arguments (e.g., `/app/cfg/config.enc`).
+2. **Process Spawning:** The HTTP server locates the `mitm-core-iam` and `mitm-core-scheduler` binaries in its local directory and spawns them as child processes, passing the exact same configuration parameter to both.
+3. **Decentralized Loading:** All three processes independently read the `MASTER_KEY` environment variable and use it to decrypt the shared configuration file at the provided path.
+4. **Fail-Fast Monitoring:** The HTTP server actively monitors the health of its child processes. If either the IAM or Scheduler process crashes, the HTTP server catches the exit status, forcefully terminates the remaining process, and shuts itself down with an error code (Exit 1). This ensures the container orchestrator (like AWS ECS) correctly flags the container as unhealthy and replaces it immediately.
 
 ## SpecDD Compliance
 

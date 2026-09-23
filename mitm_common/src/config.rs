@@ -225,11 +225,15 @@ pub fn load_config(cli_param: Option<&str>, password: &str) -> Result<DBConfig, 
     // 1. Try Commandline parameter
     if let Some(path) = cli_param {
         if !path.is_empty() {
-            if let Ok(cfg) = load_encrypted_config(path, password) {
-                log::info!("Loaded config from parameter: {}", path);
-                return Ok(apply_path_fallbacks(apply_certificate_fallback(cfg, exe_dir), exe_dir));
+            match load_encrypted_config(path, password) {
+                Ok(cfg) => {
+                    log::info!("Loaded config from parameter: {}", path);
+                    return Ok(apply_path_fallbacks(apply_certificate_fallback(cfg, exe_dir), exe_dir));
+                }
+                Err(e) => {
+                    log::warn!("Failed to load config from parameter {}: {}. Falling back.", path, e);
+                }
             }
-            log::warn!("Failed to load config from parameter {}. Falling back.", path);
         }
     }
 
