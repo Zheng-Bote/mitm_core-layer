@@ -31,9 +31,10 @@ pub struct ActionPayload {
 
 async fn handle_action(
     State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Json(payload): Json<ActionPayload>,
 ) -> impl IntoResponse {
-    let username = "admin"; // Mock auth
+    let username = auth.username;
 
     let details_json = match &payload.details {
         Some(d) => serde_json::to_value(d).unwrap_or(serde_json::json!({})),
@@ -68,7 +69,7 @@ pub struct BackupPayload {
     pub data: HashMap<String, Vec<serde_json::Value>>,
 }
 
-async fn handle_backup(State(state): State<AppState>) -> impl IntoResponse {
+async fn handle_backup(State(state): State<AppState>, axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>) -> impl IntoResponse {
     let tables = vec![
         "scheduled_programs",
         "source_credentials",
@@ -110,7 +111,7 @@ async fn handle_backup(State(state): State<AppState>) -> impl IntoResponse {
     }
 
     let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-        .bind("admin")
+        .bind(&auth.username)
         .bind("BACKUP_CONFIG")
         .bind(serde_json::json!({}))
         .execute(&state.repo.get().unwrap().pool)
@@ -126,6 +127,7 @@ async fn handle_backup(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn handle_restore(
     State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Json(payload): Json<BackupPayload>,
 ) -> impl IntoResponse {
     if payload.version != "1.0.0" {
@@ -215,7 +217,7 @@ async fn handle_restore(
     }
 
     let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-        .bind("admin")
+        .bind(&auth.username)
         .bind("RESTORE_CONFIG")
         .bind(serde_json::json!({}))
         .execute(&state.repo.get().unwrap().pool)
@@ -239,6 +241,7 @@ struct StorageKeyRecord {
 
 async fn handle_key_rotation(
     State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Json(payload): Json<KeyRotationPayload>,
 ) -> impl IntoResponse {
     let _nonce_bytes = match base64::engine::general_purpose::STANDARD.decode(&payload.nonce) {
@@ -287,7 +290,7 @@ async fn handle_key_rotation(
     };
 
     let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-        .bind("admin")
+        .bind(&auth.username)
         .bind("key_rotation_success")
         .bind(serde_json::json!({"count": 0})) // mock count
         .execute(&state.repo.get().unwrap().pool)

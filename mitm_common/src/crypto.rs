@@ -111,6 +111,9 @@ pub fn envelope_decrypt(kek: &[u8], wrapped_key: &[u8], payload_nonce: &[u8], pa
 
     let dek_cipher = Aes256Gcm::new_from_slice(&dek).map_err(|e| format!("Invalid DEK: {:?}", e))?;
     
+    if payload_nonce.len() != 12 {
+        return Err(format!("Invalid payload nonce length: {}", payload_nonce.len()).into());
+    }
     let nonce = Nonce::from_slice(payload_nonce);
     let plaintext = dek_cipher.decrypt(nonce, payload)
         .map_err(|e| format!("Failed to decrypt payload: {:?}", e))?;

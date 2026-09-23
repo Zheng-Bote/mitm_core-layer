@@ -198,6 +198,12 @@ pub async fn bootstrap_admins(repo: &Repository, config: &DBConfig, kek: &[u8]) 
                 match repo.create_user(&admin_cfg.username, &admin_cfg.token).await {
                     Ok(id) => {
                         log::info!("Created initial admin user: {}", admin_cfg.username);
+                        let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                            .bind("system")
+                            .bind("create_admin")
+                            .bind(serde_json::json!({"created_user": admin_cfg.username}))
+                            .execute(&repo.pool)
+                            .await;
                         id
                     }
                     Err(e) => {

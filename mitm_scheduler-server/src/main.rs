@@ -24,6 +24,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let password = env::var("MASTER_KEY").unwrap_or_else(|_| "".to_string());
     
+    // Decode MASTER_KEY if it is exactly 44 characters (Base64 encoding of 32 bytes)
+    let kek = if password.len() == 44 {
+        use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+        BASE64.decode(&password).unwrap_or_else(|_| password.as_bytes().to_vec())
+    } else {
+        password.as_bytes().to_vec()
+    };
+    
     let config = match load_config(config_param, &password) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -94,6 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok((mut stream, _)) => {
                         let repo = repo.clone();
                         let mk = master_key_str.clone();
+                        let kek_clone = kek.clone();
                         let db_cfg = db_config_json.clone();
                         let orch = orchestrator.clone();
                         tokio::spawn(async move {
@@ -176,8 +185,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     Ok(SchedulerRequest::CryptoEncrypt { wrapped_dek, plaintext }) => {
                                         use mitm_common::ipc::IpcResponse;
                                         use tokio::io::AsyncWriteExt;
-                                        let resp = match mitm_common::crypto::envelope_encrypt(mk.as_bytes(), &wrapped_dek, &plaintext) {
-                                            Ok((nonce, ciphertext)) => IpcResponse::CryptoEncryptResult { nonce, ciphertext },
+                                        let resp = match mitm_common::crypto::envelope_encrypt(&kek_clone, &wrapped_dek, &plaintext) {
+                                            Ok((ciphertext, nonce)) => IpcResponse::CryptoEncryptResult { nonce, ciphertext },
                                             Err(e) => IpcResponse::Error(e.to_string()),
                                         };
                                         if let Ok(resp_json) = serde_json::to_string(&resp) {
@@ -187,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     Ok(SchedulerRequest::CryptoDecrypt { wrapped_dek, nonce, ciphertext }) => {
                                         use mitm_common::ipc::IpcResponse;
                                         use tokio::io::AsyncWriteExt;
-                                        let resp = match mitm_common::crypto::envelope_decrypt(mk.as_bytes(), &wrapped_dek, &nonce, &ciphertext) {
+                                        let resp = match mitm_common::crypto::envelope_decrypt(&kek_clone, &wrapped_dek, &nonce, &ciphertext) {
                                             Ok(plaintext) => IpcResponse::CryptoDecryptResult { plaintext },
                                             Err(e) => IpcResponse::Error(e.to_string()),
                                         };
