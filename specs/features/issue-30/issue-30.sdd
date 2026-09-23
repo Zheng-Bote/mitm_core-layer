@@ -18,7 +18,9 @@ Can modify:
 Must:
   Extract the actual authenticated username from `Extension<AuthResponse>` in `admin.rs` handlers instead of hardcoding "admin".
   Check `config.admins` in `handle_get_os_user_roles` before querying the database, returning `["ADMIN"]` if the user is a statically configured admin.
+  Decode `MASTER_KEY` via base64 in `mitm_scheduler-server/src/main.rs` if length is 44, exactly as done in IAM server.
 
 Tasks:
   [x] #1 Replace hardcoded "admin" strings with `auth.username` in `mitm_http-server/src/handlers/admin.rs`.
   [x] #2 Add fallback to `state.config.admins` in `mitm_http-server/src/handlers/rbac.rs`.
+  [x] #3 Decode `MASTER_KEY` via base64 in `mitm_scheduler-server/src/main.rs`.
