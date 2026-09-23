@@ -246,6 +246,12 @@ async fn handle_get_os_user_roles(
     State(state): State<AppState>,
     Query(query): Query<OsUserQuery>,
 ) -> impl IntoResponse {
+    for admin in &state.config.admins {
+        if admin.username == query.os_user {
+            return (StatusCode::OK, Json(vec!["ADMIN".to_string()])).into_response();
+        }
+    }
+
     let record: Option<(i32,)> = match sqlx::query_as("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
         .bind(&query.os_user)
         .fetch_optional(&state.repo.get().unwrap().pool)
