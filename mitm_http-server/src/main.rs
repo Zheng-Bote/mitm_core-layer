@@ -133,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         match serde_json::from_str::<mitm_common::config::DBConfig>(&creds_resp.db_config_json) {
                             Ok(mut parsed_cfg) => {
                                 parsed_cfg.socket_dir = config_for_uds.socket_dir.clone();
-                                if let Ok(repo) = db::Repository::new(&parsed_cfg).await {
+                                if let Some(repo) = db::Repository::new(&parsed_cfg).await.ok() {
                                     if repo_cell_for_uds.set(repo).is_ok() {
                                         log::info!("Database initialized successfully. 503 Middleware lifted!");
                                         let success_msg = format!("Starting {} (v{})", APP_NAME, VERSION);
