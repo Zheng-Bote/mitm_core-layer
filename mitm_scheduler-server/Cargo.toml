@@ -10,6 +10,7 @@ documentation = "https://github.com/Zheng-Bote/mitm-3/docs"
 keywords = ["mitm-3", "core-layer", "scheduler-server"]
 
 [dependencies]
+base64 = "0.22"
 mitm_common = { path = "../mitm_common" }
 tokio = { version = "1.0", features = ["full"] }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
