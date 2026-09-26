@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use sqlx::Row;
 use axum::{
     extract::{State, Query},

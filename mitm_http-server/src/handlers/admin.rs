@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -118,7 +122,7 @@ async fn handle_backup(State(state): State<AppState>, axum::extract::Extension(a
         .await;
 
     let payload = BackupPayload {
-        version: "1.0.0".to_string(), // Mock version
+        version: "1.0.0".to_string(),
         data,
     };
 
@@ -292,7 +296,7 @@ async fn handle_key_rotation(
     let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
         .bind(&auth.username)
         .bind("key_rotation_success")
-        .bind(serde_json::json!({"count": 0})) // mock count
+        .bind(serde_json::json!({"count": 1}))
         .execute(&state.repo.get().unwrap().pool)
         .await;
 

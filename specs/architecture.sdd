@@ -1,0 +1,20 @@
+Spec: Core Layer Architecture
+Purpose: Defines the overall system architecture, components, and IPC rules for the core-layer.
+
+Decisions:
+  Embedded Supervisor Pattern: Although the core components are decoupled isolated binaries (communicating only via UDS and not sharing RAM), they are required to run inside a single Docker container. To conform to Docker's PID 1 requirement without introducing external tools like supervisord or s6-overlay, the `http-server` acts as an embedded supervisor. It natively spawns the `iam-server` and `scheduler-server` as child processes and correctly delegates graceful shutdown signals (SIGTERM) to them.
+
+Must:
+  The core-layer is composed of strongly decoupled microservices communicating over Unix Domain Sockets (UDS).
+  The central communication hub is the PostgreSQL database, managed efficiently via sqlx connection pools.
+  The core components run inside a single container.
+  The scheduler-server acts as the central job orchestrator, orchestrates nano-services, and manages task queues.
+  The http-server provides the REST API, static content, and health check.
+  The http-server validates incoming requests via IAM and delegates workflow operations to the scheduler.
+  The iam-server handles authentication (session tokens) and authorization (RBAC policies) and runs independently.
+  The UDS base path can be controlled via an ENV variable.
+  The http-server generates a unique Request-ID (UUID) for each incoming request.
+  This Request-ID is passed along via UDS payloads to the iam-server and scheduler-server to enable consolidated logging.
+
+Must not:
+  The iam-server must not communicate directly with the scheduler-server.

@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 pub mod admin_audit_logs_generated;
 pub mod dlq_generated;
 pub mod job_audit_logs_generated;

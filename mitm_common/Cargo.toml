@@ -11,3 +11,5 @@ argon2 = "0.5.3"
 rand = "0.8.5"
 log = "0.4"
 fs4 = "1.1.0"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+secrecy = { version = "0.10.3", features = ["serde"] }

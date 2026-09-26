@@ -1,0 +1,17 @@
+Spec: HTTP Server Architecture
+Purpose: Defines the runtime behavior, health checks, API versioning, and resilience rules for the http-server.
+
+Must:
+  Start initially with a first HTTP 200 on `/`.
+  Accept incoming requests immediately, but return HTTP 503 (with Retry-After header) until UDS connections to IAM and Scheduler are established.
+  `/health/live` returns 200 immediately as long as the HTTP server is running.
+  `/health/ready` returns 200 only when UDS connections to IAM and Scheduler are established (otherwise 503).
+  Responses must always be JSON following JSON:API specifications.
+  Responses must always include an HTTP status code.
+  Incoming requests are restricted to a maximum size (e.g., 2 MB for JSON payloads) to prevent Out-of-Memory (OOM) attacks.
+  Strict read, write, and idle timeouts are defined for HTTP connections.
+  The `Request-ID` (UUID) generated for cross-service tracing must be included in the `meta` object of every JSON response and as an `X-Request-ID` HTTP header for the client.
+  Any route that does not match the strict REST API pattern `/api/topic/v<version>` is treated as the legacy API (v0) for backwards compatibility.
+
+Returns:
+  {"meta":{}, "data":[], "title":"", "errors":[{"id":"", "status":"", "code":"", "detail":"", "title":""}]}

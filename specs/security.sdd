@@ -1,0 +1,10 @@
+Spec: Core Layer Security
+Purpose: Defines the security configuration, memory handling, and secret management rules for the core-layer.
+
+Must:
+  Sensitive data in RAM (e.g., MASTER_KEY, decrypted configurations, session tokens) must be actively wiped from memory after use using appropriate Rust crates (e.g., secrecy or zeroize).
+  Security configurations must be read from config.enc (AES-256 GCM and Argon2id password encrypted) or via ENV variables (AWS Secrets).
+  The MASTER_KEY must be provided via ENV MASTER_KEY.
+
+Must not:
+  Leave decrypted secrets in memory after their usage scope ends.

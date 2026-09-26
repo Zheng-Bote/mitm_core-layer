@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #[allow(unused_imports)]
 use fs4::FileExt;
 use std::fs::File;

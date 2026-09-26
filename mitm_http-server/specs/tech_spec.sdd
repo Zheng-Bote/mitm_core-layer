@@ -1,0 +1,4 @@
+Spec: HTTP Server Tech Spec
+Purpose: Defines the technical platform constraints for the http-server.
+
+Platform: Rust edition 2024 (v1.98+)

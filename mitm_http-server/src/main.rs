@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 mod ipc_client;
 mod db;
 mod handlers;
@@ -233,6 +237,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let shutdown_msg = "Shutting down...";
+    log::info!("{}", shutdown_msg);
+    if let Some(repo) = repo_cell.get() {
+        let _ = repo.log_system("INFO", "http-server", shutdown_msg).await;
+    }
     log::info!("Forwarding shutdown signals to children...");
     
     // Child-Prozesse beenden

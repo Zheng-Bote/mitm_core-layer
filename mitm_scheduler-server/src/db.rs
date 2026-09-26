@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+use sqlx::postgres;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::error::Error;
 use mitm_common::config::DBConfig;

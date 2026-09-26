@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use axum::Router;
 use axum::routing::get;
 use std::sync::Arc;

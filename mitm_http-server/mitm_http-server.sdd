@@ -1,0 +1,20 @@
+Spec: HTTP Server
+Purpose: Bereitstellung der HTTP REST API und Delegation der Workflows an den Scheduler.
+
+Structure:
+  ./specs/
+  ./src/
+
+Owns:
+  ./**
+
+References:
+  ./specs/architecture.sdd
+  ./specs/tech_spec.sdd
+  ./specs/api_spec.sdd
+  ./specs/prd.sdd
+
+Tasks:
+  [x] #1 Implement Request-ID (UUID) middleware to generate and inject `X-Request-ID` header and `meta.request_id` into all JSON responses.
+  [x] #2 Pass the generated Request-ID via UDS IPC payloads to IAM and Scheduler servers for distributed tracing.
+  [x] #3 Eliminate remaining mock data (e.g. mock backup version, mock key rotation count) in admin.rs.

@@ -1,9 +1,14 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::error::Error;
 use crate::crypto;
+use zeroize::Zeroize;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AdminUser {
@@ -277,5 +282,17 @@ mod tests {
         assert_eq!(cfg.http_port, 8443);
         assert_eq!(cfg.use_https, true);
         assert_eq!(cfg.admins.len(), 0);
+    }
+}
+
+impl Drop for AdminUser {
+    fn drop(&mut self) {
+        self.token.zeroize();
+    }
+}
+
+impl Drop for DBConnectionConfig {
+    fn drop(&mut self) {
+        self.password.zeroize();
     }
 }

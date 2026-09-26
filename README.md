@@ -41,6 +41,42 @@ The MitM-2 core layer follows a **decentralized, stateless configuration model**
 - **Resilience**: This guarantees that if a single service crashes, the supervisor can restart it instantly without it hanging or waiting for a master process to push the configuration via IPC.
 - **Reference**: An unencrypted example configuration structure can be found at [`config/example_config.json`](./config/example_config.json). In production, this JSON is encrypted into a `.enc` file using AES-256-GCM, and is decrypted at runtime using the `MASTER_KEY` environment variable.
 
+### Environment Variable Configuration (12-Factor App)
+
+Alternatively, you can fully configure the core components using Environment Variables instead of an encrypted `config.json`. The application automatically switches to ENV mode if the `MITM_DB_HOST` variable is set.
+
+**Available Environment Variables:**
+- `MITM_DB_HOST` (String) - Trigger for ENV mode. PostgreSQL Database Host.
+- `MITM_DB_PORT` (Integer) - PostgreSQL Port (Default: 5432)
+- `MITM_DB_USER` (String) - DB Username
+- `MITM_DB_PASSWORD` (String) - DB Password
+- `MITM_DB_NAME` (String) - DB Name
+- `MITM_DB_SSLMODE` / `MITM_DB_SSL` (String/Bool) - e.g. `require`, `disable` (Default: true)
+- `MITM_DB_MAX_CONNS` (Integer) - Max pool connections (Default: 50)
+- `MITM_DB_CONNECT_DELAY` (Integer) - Retry delay in seconds (Default: 5)
+- `MITM_LOG_LEVEL` (String) - e.g. `INFO`, `DEBUG` (Default: INFO)
+- `MITM_HTTP_PORT` (Integer) - Webserver port (Default: 8443)
+- `MITM_USE_HTTPS` (Bool) - `true` or `false` (Default: true)
+- `MITM_SSL_CERT` / `MITM_SSL_CRT` (String) - Path to TLS certificate
+- `MITM_SSL_KEY` (String) - Path to TLS private key
+- `MITM_UPLOAD_DIR` (String) - Path for file uploads
+- `MITM_SOCKET_DIR` (String) - Path for IPC UDS sockets
+- `MITM_ADMINS` (String) - Comma-separated list of initial admin usernames
+
+**Example (docker-compose.yml / ECS Task Definition):**
+```yaml
+environment:
+  - MASTER_KEY=my-super-secret-key
+  - MITM_DB_HOST=postgres.internal.net
+  - MITM_DB_PORT=5432
+  - MITM_DB_USER=mitm_admin
+  - MITM_DB_PASSWORD=secret_db_pass
+  - MITM_DB_NAME=mitm_db
+  - MITM_HTTP_PORT=8080
+  - MITM_USE_HTTPS=false
+  - MITM_LOG_LEVEL=DEBUG
+```
+
 ## Build Instructions
 
 You can build all core components as statically linked binaries using Cargo workspaces:
