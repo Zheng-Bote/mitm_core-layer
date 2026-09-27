@@ -149,9 +149,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let _ = repo_cell_for_uds.get().unwrap().log_system("INFO", "http-server", &success_msg).await;
                                         
                                         // Build true app state with the correct config
+                                        let template_dir = std::path::Path::new(&parsed_cfg.mitm_dir).join("html").join("templates");
+                                        let tera = match tera::Tera::new(&format!("{}/**/*", template_dir.to_string_lossy())) {
+                                            Ok(t) => t,
+                                            Err(e) => {
+                                                log::error!("Failed to parse templates: {}", e);
+                                                // Create a dummy Tera if it fails so it doesn't crash the server hard, but log the error
+                                                tera::Tera::default()
+                                            }
+                                        };
+                                        
                                         let app_state = handlers::AppState { 
                                             repo: repo_cell_for_uds.clone(), 
-                                            config: std::sync::Arc::new(parsed_cfg.clone())
+                                            config: std::sync::Arc::new(parsed_cfg.clone()),
+                                            tera: std::sync::Arc::new(tera),
                                         };
                                         
                                         let config_clone = parsed_cfg.clone();
@@ -162,7 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let ready_layer = middleware::from_fn_with_state(app_state.clone(), readiness_middleware);
                                         let error_layer = middleware::from_fn_with_state(app_state.clone(), error_logging_middleware);
 
-                                        let app = handlers::configure_routes()
+                                        let app = handlers::configure_routes(parsed_cfg.mitm_dir.clone())
                                             .layer(ready_layer)
                                             .layer(error_layer)
                                             .layer(auth_layer)

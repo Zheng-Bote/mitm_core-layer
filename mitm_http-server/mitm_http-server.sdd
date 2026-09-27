@@ -1,9 +1,11 @@
 Spec: HTTP Server
-Purpose: Bereitstellung der HTTP REST API und Delegation der Workflows an den Scheduler.
+Purpose: Bereitstellung der HTTP REST API, Delegation der Workflows an den Scheduler, und Auslieferung von statischen Frontend-Assets via Tera-Templating.
 
 Structure:
   ./specs/
   ./src/
+  ./templates/
+  ./static/
 
 Owns:
   ./**
@@ -14,7 +16,18 @@ References:
   ./specs/api_spec.sdd
   ./specs/prd.sdd
 
+Must:
+  The server must serve static assets (HTML, JS, Images) from a configurable or dedicated static directory.
+  The server must integrate the Tera templating engine for dynamic HTML rendering.
+  The server must deliver an `index.html` template when the root `/` endpoint is accessed.
+
 Tasks:
   [x] #1 Implement Request-ID (UUID) middleware to generate and inject `X-Request-ID` header and `meta.request_id` into all JSON responses.
   [x] #2 Pass the generated Request-ID via UDS IPC payloads to IAM and Scheduler servers for distributed tracing.
   [x] #3 Eliminate remaining mock data (e.g. mock backup version, mock key rotation count) in admin.rs.
+  [x] #32.1 Add `mitm_dir` to `mitm_common::config::DBConfig`, populated by `MITM_DIR` ENV (fallback: current executable's directory).
+  [x] #32.2 Add `tera` and `tower-http` (with `fs` feature) dependencies to `Cargo.toml`.
+  [x] #32.3 Create a thread-safe `Tera` engine in `AppState` initialized with `<MITM_DIR>/html/templates/**/*`.
+  [x] #32.4 Add `ServeDir` as a fallback service in `configure_routes` to serve static assets from `<MITM_DIR>/html/public`.
+  [x] #32.5 Implement a handler for `GET /` that renders `index.html` via Tera.
+  [x] #32.6 Update `auth_middleware` to bypass authentication for any path that does not start with `/admin`, making the frontend and static assets public.

@@ -54,11 +54,19 @@ pub struct DBConfig {
     pub ssl_key: String,
     #[serde(default)]
     pub socket_dir: String,
+    #[serde(default = "default_mitm_dir")]
+    pub mitm_dir: String,
 }
 
 fn default_log_level() -> String { "INFO".to_string() }
 fn default_http_port() -> u16 { 8443 }
 fn default_use_https() -> bool { true }
+fn default_mitm_dir() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| ".".to_string())
+}
 
 fn get_env_str(key: &str, default_val: &str) -> String {
     env::var(key).unwrap_or_else(|_| default_val.to_string())
@@ -112,6 +120,7 @@ fn load_from_env(exe_dir: &Path) -> DBConfig {
         ssl_cert: get_env_str("MITM_SSL_CERT", get_env_str("MITM_SSL_CRT", exe_dir.join("certs").join("server.crt").to_string_lossy().as_ref()).as_ref()),
         ssl_key: get_env_str("MITM_SSL_KEY", exe_dir.join("certs").join("server.key").to_string_lossy().as_ref()),
         socket_dir: get_env_str("MITM_SOCKET_DIR", ""),
+        mitm_dir: get_env_str("MITM_DIR", exe_dir.parent().unwrap_or(exe_dir).to_string_lossy().as_ref()),
     };
 
     let ssl_mode_str = get_env_str("MITM_DB_SSLMODE", "").to_lowercase();
@@ -159,6 +168,7 @@ fn apply_internal_defaults(exe_dir: &Path) -> DBConfig {
         ssl_cert: exe_dir.join("certs").join("server.crt").to_string_lossy().to_string(),
         ssl_key: exe_dir.join("certs").join("server.key").to_string_lossy().to_string(),
         socket_dir: "".to_string(),
+        mitm_dir: exe_dir.parent().unwrap_or(exe_dir).to_string_lossy().to_string(),
     }
 }
 
