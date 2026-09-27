@@ -1,6 +1,6 @@
 [package]
 name = "mitm-http-server"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "MitM HTTP server (Start-Programm) - core layer"

@@ -73,7 +73,7 @@ async fn readiness_middleware(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("MITM_LOG_LEVEL", "info")).init();
 
     let args: Vec<String> = env::args().collect();
     let config_param = args.get(1).map(|s| s.as_str());
@@ -92,7 +92,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("{}", success_msg);
 
     // TASK 3: ECS Supervisor Engine -> Child-Prozesse spawnen
-    let config_arg = config_param.unwrap_or("config.json");
     
     // Dynamischer Pfad: Suche die Sub-Prozesse im selben Ordner wie den HTTP-Core
     let current_exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -101,14 +100,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let iam_path = bin_dir.join("mitm-core-iam");
     let scheduler_path = bin_dir.join("mitm-core-scheduler");
 
-    let mut iam_child = tokio::process::Command::new(&iam_path)
-        .arg(config_arg)
+    let mut iam_command = tokio::process::Command::new(&iam_path);
+    if let Some(cfg) = config_param {
+        iam_command.arg(cfg);
+    }
+    let mut iam_child = iam_command
         .kill_on_drop(true)
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to spawn IAM server child process from {:?}: {}", iam_path, e));
         
-    let mut scheduler_child = tokio::process::Command::new(&scheduler_path)
-        .arg(config_arg)
+    let mut scheduler_command = tokio::process::Command::new(&scheduler_path);
+    if let Some(cfg) = config_param {
+        scheduler_command.arg(cfg);
+    }
+    let mut scheduler_child = scheduler_command
         .kill_on_drop(true)
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to spawn Scheduler child process from {:?}: {}", scheduler_path, e));

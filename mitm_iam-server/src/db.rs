@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use sqlx::postgres;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::error::Error;
 use mitm_common::config::DBConfig;
@@ -117,32 +116,6 @@ impl Repository {
         Ok(record.map(|r| r.0))
     }
 
-    pub async fn check_password(&self, username: &str, password: &str) -> Result<bool, Box<dyn Error>> {
-        let record: Option<(String,)> = sqlx::query_as(
-            "SELECT password_hash FROM admin_users WHERE username = $1 AND is_active = true",
-        )
-        .bind(username)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        if let Some(row) = record {
-            let parts: Vec<&str> = row.0.split(':').collect();
-            if parts.len() != 2 {
-                return Ok(false);
-            }
-            let salt = BASE64.decode(parts[0])?;
-            let stored_hash = BASE64.decode(parts[1])?;
-
-            let derived_hash = crypto::derive_key(password.as_bytes(), &salt)?;
-            
-            // Constant time compare using subtle
-            use subtle::ConstantTimeEq;
-            if derived_hash.len() == stored_hash.len() {
-                return Ok(derived_hash.ct_eq(&stored_hash).unwrap_u8() == 1);
-            }
-        }
-        Ok(false)
-    }
 
     pub async fn get_user_roles(&self, username: &str, kek: &[u8]) -> Result<Vec<String>, Box<dyn Error>> {
         let record: Option<(i32,)> = sqlx::query_as("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")

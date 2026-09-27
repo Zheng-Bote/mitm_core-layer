@@ -18,6 +18,9 @@ References:
 
 Must:
   All core components must log their startup and graceful shutdown events both to STDOUT (CLI) and to the database (system_logs).
+  All core components must configure their `env_logger` using the `MITM_LOG_LEVEL` environment variable.
+  Config priority: Explicit CLI parameter config file takes precedence. If no CLI parameter is provided, load from ENVs.
+  IAM Server must blindly trust authentication requests (Trust Proxy/Frontend) and skip password validation, only loading roles for the given username.
   All core components run within a single container.
   Communication between microservices must strictly use Unix Domain Sockets (UDS).
   A Request-ID (UUID) must be generated for each request and passed on to IAM and Scheduler via UDS (Distributed Tracing).
@@ -34,3 +37,7 @@ Tasks:
   [x] #4 Implement DB shutdown logging for http-server.
   [x] #1 Add standardized SPDX header (Apache-2.0) to all Rust source files.
   [x] #2 Implement memory zeroing (via secrecy or zeroize crate) for sensitive data (MASTER_KEY, tokens) across all core components.
+  [x] #5 Update `env_logger` initialization in all core components to use `MITM_LOG_LEVEL`.
+  [x] #6 Refactor `mitm_common::config::load_config` to prioritize explicit CLI parameter, then ENVs.
+  [x] #7 Update `mitm_http-server/src/main.rs` to spawn child processes without `"config.json"` default.
+  [x] #8 Update `mitm_iam-server/src/main.rs` to skip password check and trust username (Option A).

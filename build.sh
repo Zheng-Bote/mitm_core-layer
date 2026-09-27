@@ -9,7 +9,7 @@ rustup target add x86_64-unknown-linux-musl
 cargo build --release --target x86_64-unknown-linux-musl
 
 # Create bin directory if it doesn't exist
-mkdir -p ../bin
+mkdir -p ../app/bin
 
 # Copy the binaries
 echo "Copying binaries to ../app/bin/"

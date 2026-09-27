@@ -46,6 +46,11 @@ pub async fn auth_middleware(
     use axum::Json;
     use serde::Serialize;
     
+    let path = req.uri().path();
+    if path == "/health" || path == "/info" || path == "/time" {
+        return next.run(req).await;
+    }
+
     #[derive(Serialize)]
     struct JsonApiError {
         status: String,

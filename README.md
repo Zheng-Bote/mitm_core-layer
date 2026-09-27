@@ -41,9 +41,12 @@ The MitM-2 core layer follows a **decentralized, stateless configuration model**
 - **Resilience**: This guarantees that if a single service crashes, the supervisor can restart it instantly without it hanging or waiting for a master process to push the configuration via IPC.
 - **Reference**: An unencrypted example configuration structure can be found at [`config/example_config.json`](./config/example_config.json). In production, this JSON is encrypted into a `.enc` file using AES-256-GCM, and is decrypted at runtime using the `MASTER_KEY` environment variable.
 
-### Environment Variable Configuration (12-Factor App)
+### Configuration Priority (12-Factor App)
 
-Alternatively, you can fully configure the core components using Environment Variables instead of an encrypted `config.json`. The application automatically switches to ENV mode if the `MITM_DB_HOST` variable is set.
+The configuration loader follows a strict priority cascade to ensure flexibility in different environments:
+1. **CLI Parameter**: If the HTTP server is started with a specific config file parameter (e.g., `./mitm-core-http /path/to/cfg.enc`), this file takes precedence.
+2. **Environment Variables**: If NO parameter is provided, the system falls back to loading configuration entirely from Environment Variables (triggered by `MITM_DB_HOST`).
+3. **Default Locations**: If neither is present, it looks for `config.enc` in the binary's directory or the `./cfg/` folder.
 
 **Available Environment Variables:**
 - `MITM_DB_HOST` (String) - Trigger for ENV mode. PostgreSQL Database Host.
@@ -118,9 +121,9 @@ flowchart TD
     end
 ```
 
-1. **Initialization:** The container runtime starts `mitm-core-http` as PID 1, passing the path to the configuration file via CLI arguments (e.g., `/app/cfg/config.enc`).
-2. **Process Spawning:** The HTTP server locates the `mitm-core-iam` and `mitm-core-scheduler` binaries in its local directory and spawns them as child processes, passing the exact same configuration parameter to both.
-3. **Decentralized Loading:** All three processes independently read the `MASTER_KEY` environment variable and use it to decrypt the shared configuration file at the provided path.
+1. **Initialization:** The container runtime starts `mitm-core-http` as PID 1, passing an optional path to the configuration file via CLI arguments (e.g., `/app/cfg/config.enc`).
+2. **Process Spawning:** The HTTP server locates the `mitm-core-iam` and `mitm-core-scheduler` binaries in its local directory and spawns them as child processes. Crucially, it passes along the exact same configuration parameter it received (or no parameter at all if started purely via ENVs).
+3. **Decentralized Loading:** All three processes independently read the `MASTER_KEY` environment variable and use it to decrypt the shared configuration file at the provided path, or fall back to ENVs if no path was provided.
 4. **Fail-Fast Monitoring:** The HTTP server actively monitors the health of its child processes. If either the IAM or Scheduler process crashes, the HTTP server catches the exit status, forcefully terminates the remaining process, and shuts itself down with an error code (Exit 1). This ensures the container orchestrator (like AWS ECS) correctly flags the container as unhealthy and replaces it immediately.
 
 ## SpecDD Compliance

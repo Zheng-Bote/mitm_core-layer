@@ -19,7 +19,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("MITM_LOG_LEVEL", "info")).init();
     
     let args: Vec<String> = env::args().collect();
     let config_param = args.get(1).map(|s| s.as_str());
@@ -152,10 +152,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConfig, repo: &db::Repository, kek: &[u8]) -> IpcResponse {
+    // Trust Proxy / Frontend (Option A): Skip password validation, trust username
+    
     // 1. In-Memory Check
     for admin in &config.admins {
-        if admin.username.as_bytes().ct_eq(req.username.as_bytes()).unwrap_u8() == 1
-            && admin.token.as_bytes().ct_eq(req.token.as_bytes()).unwrap_u8() == 1 {
+        if admin.username.as_bytes().ct_eq(req.username.as_bytes()).unwrap_u8() == 1 {
             return IpcResponse::AuthenticateResult(AuthResponse {
                 success: true,
                 username: req.username,
@@ -165,25 +166,24 @@ async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConf
         }
     }
 
-    // 2. DB Fallback Check
-    let is_valid = match repo.check_password(&req.username, &req.token).await.map_err(|e| e.to_string()) {
-        Ok(valid) => valid,
+    // 2. DB Fallback Check (just check if user exists)
+    let user_exists = match repo.get_user_id(&req.username).await.map_err(|e| e.to_string()) {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
         Err(e) => {
             let err_msg = format!("Database check error: {}", e);
             log::error!("{}", err_msg);
-                drop(e);
             let _ = repo.log_system("ERROR", "iam-server", &err_msg).await;
             return IpcResponse::Error("Internal authentication error".to_string());
         }
     };
 
-    if is_valid {
+    if user_exists {
         let roles = match repo.get_user_roles(&req.username, kek).await.map_err(|e| e.to_string()) {
             Ok(r) => r,
             Err(e) => {
                 let err_msg = format!("Failed to fetch roles for {}: {}", req.username, e);
                 log::error!("{}", err_msg);
-                drop(e);
                 let _ = repo.log_system("ERROR", "iam-server", &err_msg).await;
                 vec![]
             }
@@ -199,7 +199,7 @@ async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConf
             success: false,
             username: req.username,
             roles: vec![],
-            error_message: Some("Invalid credentials".to_string()),
+            error_message: Some("User not found".to_string()),
         })
     }
 }
