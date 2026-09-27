@@ -19,6 +19,7 @@ pub mod transformation;
 pub struct AppState {
     pub repo: Arc<tokio::sync::OnceCell<crate::db::Repository>>,
     pub config: Arc<mitm_common::config::DBConfig>,
+    pub tera: Arc<tera::Tera>,
 }
 
 #[derive(serde::Serialize)]
@@ -61,8 +62,12 @@ async fn handle_time() -> axum::response::Response {
     axum::response::IntoResponse::into_response(axum::Json(res))
 }
 
-pub fn configure_routes() -> Router<AppState> {
+pub fn configure_routes(mitm_dir: String) -> Router<AppState> {
+    let public_dir = std::path::Path::new(&mitm_dir).join("html").join("public");
+    let serve_dir = tower_http::services::ServeDir::new(public_dir);
+
     Router::new()
+        .route("/", get(handle_index))
         .route("/info", get(handle_info))
         .route("/health", get(handle_health))
         .route("/time", get(handle_time))
@@ -73,4 +78,22 @@ pub fn configure_routes() -> Router<AppState> {
         .nest("/admin/dlq", dlq::routes())
         .route("/admin/dlq_bin", get(dlq::handle_dlq_bin))
         .nest("/admin/transformation", transformation::routes())
+        .fallback_service(serve_dir)
+}
+
+async fn handle_index(State(state): State<AppState>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut context = tera::Context::new();
+    context.insert("version", env!("CARGO_PKG_VERSION"));
+    
+    match state.tera.render("index.html", &context) {
+        Ok(html) => axum::response::Html(html).into_response(),
+        Err(e) => {
+            log::error!("Template render error: {}", e);
+            axum::response::IntoResponse::into_response((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Template rendering failed",
+            ))
+        }
+    }
 }

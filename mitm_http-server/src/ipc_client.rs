@@ -47,7 +47,7 @@ pub async fn auth_middleware(
     use serde::Serialize;
     
     let path = req.uri().path();
-    if path == "/health" || path == "/info" || path == "/time" {
+    if !path.starts_with("/admin") {
         return next.run(req).await;
     }
 

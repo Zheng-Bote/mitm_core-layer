@@ -17,4 +17,7 @@ cp target/x86_64-unknown-linux-musl/release/mitm-http-server ../app/bin/mitm-cor
 cp target/x86_64-unknown-linux-musl/release/mitm-iam-server ../app/bin/mitm-core-iam
 cp target/x86_64-unknown-linux-musl/release/mitm-scheduler-server ../app/bin/mitm-core-scheduler
 
+echo "Copying static assets and templates..."
+cp -r html ../app/
+
 echo "Build complete! Binaries are located in ../app/bin/"
