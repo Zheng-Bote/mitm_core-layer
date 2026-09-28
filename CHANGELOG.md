@@ -5,6 +5,15 @@ All notable changes to the MitM-2 Core Layer project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-28
+
+### Added
+- **API Versioning (Issue #14):** Introduced a new API namespace `v1` (`/api/admin/v1`, `/api/transformation/v1`, `/api/public/v1`) while retaining full backward compatibility for the legacy `v0` API.
+- **Dynamic Policy Engine (Casbin):** Implemented a new AuthZ middleware using `casbin` and `sqlx-adapter`. Policies are now dynamically evaluated against the PostgreSQL database.
+- **Content Negotiation:** V1 endpoints for data-heavy operations (e.g., audit logs, transformations, DLQ) no longer use the `_bin` suffix for FlatBuffers. They now use the `Accept: application/x-flatbuffers` HTTP header.
+- **REST Semantics:** Query-based resource identifiers in V1 routes are upgraded to Path variables (e.g., `/api/admin/v1/jobs/:name/stop`).
+- **Documentation:** Added detailed API documentation `api_v1.md` and archived `api_v0.md`.
+
 ## [1.1.1] - 2026-09-28
 
 ### Fixed
