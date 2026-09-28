@@ -73,7 +73,7 @@ pub struct BackupPayload {
     pub data: HashMap<String, Vec<serde_json::Value>>,
 }
 
-async fn handle_backup(State(state): State<AppState>, axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>) -> impl IntoResponse {
+pub async fn handle_backup(State(state): State<AppState>, axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>) -> impl IntoResponse {
     let tables = vec![
         "scheduled_programs",
         "source_credentials",
@@ -129,7 +129,7 @@ async fn handle_backup(State(state): State<AppState>, axum::extract::Extension(a
     (StatusCode::OK, Json(payload)).into_response()
 }
 
-async fn handle_restore(
+pub async fn handle_restore(
     State(state): State<AppState>,
     axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Json(payload): Json<BackupPayload>,
@@ -356,7 +356,7 @@ pub async fn handle_key_rotation(
     (StatusCode::OK, "Key rotation successful").into_response()
 }
 
-async fn handle_get_storage_keys(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_get_storage_keys(State(state): State<AppState>) -> impl IntoResponse {
     let mut keys = Vec::new();
 
     if let Ok(rows) = sqlx::query("SELECT wrapped_key FROM storage_keys WHERE is_active = true")
@@ -401,7 +401,7 @@ struct DbInfoRow {
     pg_size_pretty: String,
 }
 
-async fn handle_dashboard_stats(
+pub async fn handle_dashboard_stats(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let db_info = match sqlx::query_as::<_, DbInfoRow>("SELECT current_database(), version(), pg_size_pretty(pg_database_size(current_database()))")

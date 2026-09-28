@@ -33,7 +33,7 @@ pub struct Role {
     pub name: String,
 }
 
-async fn handle_get_roles(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_get_roles(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, Role>("SELECT id, name FROM roles ORDER BY id ASC")
         .fetch_all(&state.repo.get().unwrap().pool)
         .await
@@ -59,7 +59,7 @@ pub struct User {
     pub is_active: bool,
 }
 
-async fn handle_get_users(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_get_users(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, User>("SELECT id, username, is_active FROM admin_users ORDER BY id ASC")
         .fetch_all(&state.repo.get().unwrap().pool)
         .await
@@ -84,7 +84,7 @@ pub struct CreateUserReq {
     pub password: String,
 }
 
-async fn handle_create_user(
+pub async fn handle_create_user(
     State(state): State<AppState>,
     Json(payload): Json<CreateUserReq>,
 ) -> impl IntoResponse {
@@ -124,7 +124,7 @@ pub struct UserIdQuery {
     pub id: i32,
 }
 
-async fn handle_delete_user(
+pub async fn handle_delete_user(
     State(state): State<AppState>,
     Query(query): Query<UserIdQuery>,
 ) -> impl IntoResponse {
@@ -149,7 +149,7 @@ pub struct AssignRolesReq {
     pub role_ids: Vec<i32>,
 }
 
-async fn handle_assign_roles(
+pub async fn handle_assign_roles(
     State(state): State<AppState>,
     axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Json(payload): Json<AssignRolesReq>,
@@ -221,7 +221,7 @@ pub struct GetUserRolesQuery {
     pub user_id: i32,
 }
 
-async fn handle_get_user_roles(
+pub async fn handle_get_user_roles(
     State(state): State<AppState>,
     Query(query): Query<GetUserRolesQuery>,
 ) -> impl IntoResponse {
@@ -255,7 +255,7 @@ pub struct OsUserQuery {
     pub os_user: String,
 }
 
-async fn handle_get_os_user_roles(
+pub async fn handle_get_os_user_roles(
     State(state): State<AppState>,
     Query(query): Query<OsUserQuery>,
 ) -> impl IntoResponse {

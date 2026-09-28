@@ -1,3 +1,5 @@
+use casbin::MgmtApi;
+use casbin::CoreApi;
 /*
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -159,11 +161,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         };
                                         
+
+
+                                        // Initialize Casbin Enforcer with inline model
+                                        let model_text = "
+[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[role_definition]
+g = _, _
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = g(r.sub, p.sub) && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
+";
+                                        let m = casbin::DefaultModel::from_str(model_text).await.unwrap();
+                                        let a = sqlx_adapter::SqlxAdapter::new_with_pool(repo_cell_for_uds.get().unwrap().pool.clone()).await.unwrap();
+                                        let mut enforcer = casbin::Enforcer::new(m, a).await.unwrap();
+                                        
+                                        // Seed default policies (Task 2)
+                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]).await;
+                                        }
+                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]).await;
+                                        }
+
+
                                         let app_state = handlers::AppState { 
                                             repo: repo_cell_for_uds.clone(), 
                                             config: std::sync::Arc::new(parsed_cfg.clone()),
                                             tera: std::sync::Arc::new(tera),
+                                            enforcer: std::sync::Arc::new(tokio::sync::RwLock::new(enforcer)),
                                         };
+
                                         
                                         let config_clone = parsed_cfg.clone();
                                         let auth_layer = axum::middleware::from_fn(move |req, next| {
@@ -173,7 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let ready_layer = middleware::from_fn_with_state(app_state.clone(), readiness_middleware);
                                         let error_layer = middleware::from_fn_with_state(app_state.clone(), error_logging_middleware);
 
-                                        let app = handlers::configure_routes(parsed_cfg.mitm_dir.clone())
+                                        let app = handlers::configure_routes(parsed_cfg.mitm_dir.clone(), app_state.clone())
                                             .layer(ready_layer)
                                             .layer(error_layer)
                                             .layer(auth_layer)
@@ -273,3 +309,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+

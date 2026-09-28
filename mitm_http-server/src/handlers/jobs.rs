@@ -64,7 +64,7 @@ struct JobRow {
     is_running: Option<bool>,
 }
 
-async fn handle_get_jobs(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_get_jobs(State(state): State<AppState>) -> impl IntoResponse {
     let query = "SELECT sp.id, sp.name, sp.command, sp.args, sp.cron_expr, sp.enabled, sp.restart_on_exit, pr.pid as active_pid, CASE WHEN pr.id IS NOT NULL THEN true ELSE false END as is_running FROM scheduled_programs sp LEFT JOIN program_runs pr ON sp.id = pr.program_id AND pr.finished_at IS NULL ORDER BY sp.name ASC";
     match sqlx::query_as::<_, JobRow>(query)
         .fetch_all(&state.repo.get().unwrap().pool)
@@ -129,7 +129,7 @@ async fn send_scheduler_ipc(req: SchedulerRequest, socket_dir: &str) -> Result<(
     Ok(())
 }
 
-async fn handle_update_jobs(
+pub async fn handle_update_jobs(
     State(state): State<AppState>,
     Json(jobs): Json<Vec<ScheduledProgram>>,
 ) -> impl IntoResponse {
@@ -183,7 +183,7 @@ pub struct JobNameQuery {
     pub name: String,
 }
 
-async fn handle_delete_job(
+pub async fn handle_delete_job(
     State(state): State<AppState>,
     Query(query): Query<JobNameQuery>,
 ) -> impl IntoResponse {
@@ -209,7 +209,7 @@ async fn handle_delete_job(
     }
 }
 
-async fn handle_stop_job(
+pub async fn handle_stop_job(
     State(state): State<AppState>,
     Query(query): Query<JobNameQuery>,
 ) -> impl IntoResponse {
@@ -228,7 +228,7 @@ async fn handle_stop_job(
     }
 }
 
-async fn handle_execute_job(
+pub async fn handle_execute_job(
     State(state): State<AppState>,
     Query(query): Query<JobNameQuery>,
 ) -> impl IntoResponse {

@@ -39,7 +39,7 @@ pub struct DlqEntry {
     pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-async fn handle_dlq(
+pub async fn handle_dlq(
     State(state): State<AppState>,
     Query(query): Query<PaginationQuery>,
 ) -> impl IntoResponse {
@@ -120,7 +120,7 @@ pub struct RequeueRequest {
     pub ids: Vec<uuid::Uuid>,
 }
 
-async fn handle_requeue(
+pub async fn handle_requeue(
     State(state): State<AppState>,
     Json(payload): Json<RequeueRequest>,
 ) -> impl IntoResponse {
