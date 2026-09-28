@@ -18,6 +18,7 @@ References:
 
 Must:
   All core components must log their startup and graceful shutdown events both to STDOUT (CLI) and to the database (system_logs).
+  Strictly separate logging concerns: system_logs for lifecycle/errors, job_audit_logs for processing metrics, admin_audit_logs for manual triggers/config changes.
   All core components must configure their `env_logger` using the `MITM_LOG_LEVEL` environment variable.
   Config priority: Explicit CLI parameter config file takes precedence. If no CLI parameter is provided, load from ENVs.
   IAM Server must blindly trust authentication requests (Trust Proxy/Frontend) and skip password validation, only loading roles for the given username.
