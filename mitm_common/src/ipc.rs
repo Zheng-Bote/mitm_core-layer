@@ -19,12 +19,20 @@ pub struct AuthResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InfoResponse {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", content = "payload")]
 pub enum IpcRequest {
     #[serde(rename = "authenticate")]
     Authenticate(AuthRequest),
     #[serde(rename = "log_system")]
     LogSystem { level: String, component: String, message: String },
+    #[serde(rename = "get_info")]
+    GetInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +46,8 @@ pub enum IpcResponse {
     CryptoEncryptResult { nonce: Vec<u8>, ciphertext: Vec<u8> },
     #[serde(rename = "crypto_decrypt_result")]
     CryptoDecryptResult { plaintext: Vec<u8> },
+    #[serde(rename = "get_info_result")]
+    GetInfoResult(InfoResponse),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +93,8 @@ pub enum SchedulerRequest {
     StopJob { job_name: String },
     #[serde(rename = "update_jobs")]
     UpdateJobs,
+    #[serde(rename = "get_info")]
+    GetInfo,
     #[serde(rename = "crypto_encrypt")]
     CryptoEncrypt { wrapped_dek: Vec<u8>, plaintext: Vec<u8> },
     #[serde(rename = "crypto_decrypt")]
