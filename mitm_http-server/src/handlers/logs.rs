@@ -64,15 +64,27 @@ pub struct AdminAuditLog {
 async fn get_system_logs(state: &AppState, query: &LogQuery) -> Result<Vec<SystemLog>, sqlx::Error> {
     let mut qb = QueryBuilder::new("SELECT id, ts, level, component, message FROM system_logs WHERE 1=1");
     if let Some(from_str) = &query.from {
-        if let Ok(from) = chrono::DateTime::parse_from_rfc3339(from_str) {
+        let from_ts = chrono::DateTime::parse_from_rfc3339(from_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .or_else(|_| {
+                chrono::NaiveDate::parse_from_str(from_str, "%Y-%m-%d")
+                    .map(|nd| nd.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(chrono::Utc).unwrap())
+            });
+        if let Ok(from) = from_ts {
             qb.push(" AND ts >= ");
-            qb.push_bind(from.with_timezone(&chrono::Utc));
+            qb.push_bind(from);
         }
     }
     if let Some(to_str) = &query.to {
-        if let Ok(to) = chrono::DateTime::parse_from_rfc3339(to_str) {
+        let to_ts = chrono::DateTime::parse_from_rfc3339(to_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .or_else(|_| {
+                chrono::NaiveDate::parse_from_str(to_str, "%Y-%m-%d")
+                    .map(|nd| nd.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(chrono::Utc).unwrap())
+            });
+        if let Ok(to) = to_ts {
             qb.push(" AND ts <= ");
-            qb.push_bind(to.with_timezone(&chrono::Utc));
+            qb.push_bind(to);
         }
     }
     qb.push(" ORDER BY ts DESC");
@@ -146,15 +158,27 @@ async fn handle_system_logs_bin(
 async fn get_job_audit_logs(state: &AppState, query: &LogQuery) -> Result<Vec<JobAuditLog>, sqlx::Error> {
     let mut qb = QueryBuilder::new("SELECT id, run_id, ts, component, message FROM job_audit_logs WHERE 1=1");
     if let Some(from_str) = &query.from {
-        if let Ok(from) = chrono::DateTime::parse_from_rfc3339(from_str) {
+        let from_ts = chrono::DateTime::parse_from_rfc3339(from_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .or_else(|_| {
+                chrono::NaiveDate::parse_from_str(from_str, "%Y-%m-%d")
+                    .map(|nd| nd.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(chrono::Utc).unwrap())
+            });
+        if let Ok(from) = from_ts {
             qb.push(" AND ts >= ");
-            qb.push_bind(from.with_timezone(&chrono::Utc));
+            qb.push_bind(from);
         }
     }
     if let Some(to_str) = &query.to {
-        if let Ok(to) = chrono::DateTime::parse_from_rfc3339(to_str) {
+        let to_ts = chrono::DateTime::parse_from_rfc3339(to_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .or_else(|_| {
+                chrono::NaiveDate::parse_from_str(to_str, "%Y-%m-%d")
+                    .map(|nd| nd.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(chrono::Utc).unwrap())
+            });
+        if let Ok(to) = to_ts {
             qb.push(" AND ts <= ");
-            qb.push_bind(to.with_timezone(&chrono::Utc));
+            qb.push_bind(to);
         }
     }
     qb.push(" ORDER BY ts DESC");
@@ -227,15 +251,27 @@ async fn handle_job_audit_logs_bin(
 async fn get_admin_audit_logs(state: &AppState, query: &LogQuery) -> Result<Vec<AdminAuditLog>, sqlx::Error> {
     let mut qb = QueryBuilder::new("SELECT id, username, action, details, ts FROM admin_audit_logs WHERE 1=1");
     if let Some(from_str) = &query.from {
-        if let Ok(from) = chrono::DateTime::parse_from_rfc3339(from_str) {
+        let from_ts = chrono::DateTime::parse_from_rfc3339(from_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .or_else(|_| {
+                chrono::NaiveDate::parse_from_str(from_str, "%Y-%m-%d")
+                    .map(|nd| nd.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(chrono::Utc).unwrap())
+            });
+        if let Ok(from) = from_ts {
             qb.push(" AND ts >= ");
-            qb.push_bind(from.with_timezone(&chrono::Utc));
+            qb.push_bind(from);
         }
     }
     if let Some(to_str) = &query.to {
-        if let Ok(to) = chrono::DateTime::parse_from_rfc3339(to_str) {
+        let to_ts = chrono::DateTime::parse_from_rfc3339(to_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .or_else(|_| {
+                chrono::NaiveDate::parse_from_str(to_str, "%Y-%m-%d")
+                    .map(|nd| nd.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(chrono::Utc).unwrap())
+            });
+        if let Ok(to) = to_ts {
             qb.push(" AND ts <= ");
-            qb.push_bind(to.with_timezone(&chrono::Utc));
+            qb.push_bind(to);
         }
     }
     qb.push(" ORDER BY ts DESC");
