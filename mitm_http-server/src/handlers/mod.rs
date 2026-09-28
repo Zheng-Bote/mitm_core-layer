@@ -83,7 +83,9 @@ pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
 
     Router::new()
         .route("/", get(handle_index))
-                .route("/health", get(handle_health))
+        .route("/info", get(handle_info))
+        .route("/health", get(handle_health))
+        .route("/time", get(handle_time))
                 .nest("/admin", admin::routes())
         .nest("/admin", jobs::routes())
         .nest("/admin/rbac", rbac::routes())
