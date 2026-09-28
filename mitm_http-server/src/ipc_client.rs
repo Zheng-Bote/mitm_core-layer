@@ -192,3 +192,53 @@ pub async fn get_credentials(socket_path: &std::path::Path) -> Result<mitm_commo
     
     Ok(resp)
 }
+
+pub async fn query_iam_info(socket_path: &std::path::Path) -> String {
+    let timeout = tokio::time::Duration::from_millis(500);
+    let fut = async {
+        let mut stream = UnixStream::connect(socket_path).await.ok()?;
+        let req = mitm_common::ipc::IpcRequest::GetInfo;
+        let mut json_req = serde_json::to_string(&req).unwrap();
+        json_req.push('\n');
+        stream.write_all(json_req.as_bytes()).await.ok()?;
+        
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.ok()?;
+        
+        match serde_json::from_str::<mitm_common::ipc::IpcResponse>(&line) {
+            Ok(mitm_common::ipc::IpcResponse::GetInfoResult(info)) => Some(info.version),
+            _ => None,
+        }
+    };
+    
+    match tokio::time::timeout(timeout, fut).await {
+        Ok(Some(v)) => v,
+        _ => "offline".to_string(),
+    }
+}
+
+pub async fn query_scheduler_info(socket_path: &std::path::Path) -> String {
+    let timeout = tokio::time::Duration::from_millis(500);
+    let fut = async {
+        let mut stream = UnixStream::connect(socket_path).await.ok()?;
+        let req = mitm_common::ipc::SchedulerRequest::GetInfo;
+        let mut json_req = serde_json::to_string(&req).unwrap();
+        json_req.push('\n');
+        stream.write_all(json_req.as_bytes()).await.ok()?;
+        
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.ok()?;
+        
+        match serde_json::from_str::<mitm_common::ipc::InfoResponse>(&line) {
+            Ok(info) => Some(info.version),
+            _ => None,
+        }
+    };
+    
+    match tokio::time::timeout(timeout, fut).await {
+        Ok(Some(v)) => v,
+        _ => "offline".to_string(),
+    }
+}

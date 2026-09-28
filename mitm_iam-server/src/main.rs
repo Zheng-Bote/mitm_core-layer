@@ -97,6 +97,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         log::error!("Failed to save LogSystem IPC: {}", e);
                                     }
                                 }
+                                Ok(IpcRequest::GetInfo) => {
+                                    let response = IpcResponse::GetInfoResult(mitm_common::ipc::InfoResponse {
+                                        name: "mitm_iam-server".to_string(),
+                                        version: env!("CARGO_PKG_VERSION").to_string(),
+                                    });
+                                    if let Ok(resp_json) = serde_json::to_string(&response) {
+                                        let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                    }
+                                }
                                 Ok(IpcRequest::Authenticate(req)) => {
                                     let response = handle_authenticate(req, &config, &repo, &kek).await;
                                     if let Ok(resp_json) = serde_json::to_string(&response) {

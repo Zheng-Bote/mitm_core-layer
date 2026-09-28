@@ -43,6 +43,15 @@ pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppSt
     let db_name: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&state.repo.get().unwrap().pool).await.unwrap_or_else(|_| "Unknown".into());
 
+    let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
+    let iam_sock = socket_dir.join("mitm_iam.sock");
+    let sched_sock = socket_dir.join("mitm_scheduler.sock");
+    
+    let (iam_version, sched_version) = tokio::join!(
+        crate::ipc_client::query_iam_info(&iam_sock),
+        crate::ipc_client::query_scheduler_info(&sched_sock)
+    );
+
     let info = serde_json::json!({
         "name": "MitM Core Layer",
         "description": "Backend services for the MitM project",
@@ -52,8 +61,8 @@ pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppSt
         },
         "core_components": [
             { "name": "mitm_http-server", "version": env!("CARGO_PKG_VERSION") },
-            { "name": "mitm_iam-server", "version": "1.2.0" },
-            { "name": "mitm_scheduler-server", "version": "1.2.0" }
+            { "name": "mitm_iam-server", "version": iam_version },
+            { "name": "mitm_scheduler-server", "version": sched_version }
         ]
     });
     axum::response::IntoResponse::into_response(axum::Json(info))

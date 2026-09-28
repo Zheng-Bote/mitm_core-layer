@@ -183,6 +183,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         log::info!("API requested StopJob for job {}", job_name);
                                         let repo_c = repo.clone(); let orch_c = orch.clone(); tokio::spawn(async move { if let Ok(prog) = repo_c.get_program_by_name(&job_name).await { orch_c.stop_job(prog.id).await; } });
                                     }
+                                    Ok(SchedulerRequest::GetInfo) => {
+                                        use mitm_common::ipc::InfoResponse;
+                                        use tokio::io::AsyncWriteExt;
+                                        let resp = InfoResponse {
+                                            name: "mitm_scheduler-server".to_string(),
+                                            version: env!("CARGO_PKG_VERSION").to_string(),
+                                        };
+                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                            let mut out = resp_json;
+                                            out.push('\n');
+                                            let _ = writer.write_all(out.as_bytes()).await;
+                                        }
+                                    }
                                     Ok(SchedulerRequest::UpdateJobs) => {
                                         log::info!("API requested UpdateJobs, reloading scheduler config");
                                     }
