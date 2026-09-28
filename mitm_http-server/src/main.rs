@@ -163,9 +163,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         
 
 
-                                        // Initialize Casbin Enforcer
-                                        let model_path = std::path::PathBuf::from(&parsed_cfg.mitm_dir).join("config").join("model.conf");
-                                        let m = casbin::DefaultModel::from_file(model_path.to_str().unwrap()).await.unwrap();
+                                        // Initialize Casbin Enforcer with inline model
+                                        let model_text = "
+[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[role_definition]
+g = _, _
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = g(r.sub, p.sub) && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
+";
+                                        let m = casbin::DefaultModel::from_str(model_text).await.unwrap();
                                         let a = sqlx_adapter::SqlxAdapter::new_with_pool(repo_cell_for_uds.get().unwrap().pool.clone()).await.unwrap();
                                         let mut enforcer = casbin::Enforcer::new(m, a).await.unwrap();
                                         
