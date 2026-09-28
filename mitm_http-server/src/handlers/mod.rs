@@ -37,11 +37,24 @@ pub struct ErrorResponse {
     pub errors: Vec<JsonApiError>,
 }
 
-async fn handle_info() -> axum::response::Response {
+pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppState>) -> axum::response::Response {
+    let db_version: String = sqlx::query_scalar("SELECT version()")
+        .fetch_one(&state.repo.get().unwrap().pool).await.unwrap_or_else(|_| "Unknown".into());
+    let db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&state.repo.get().unwrap().pool).await.unwrap_or_else(|_| "Unknown".into());
+
     let info = serde_json::json!({
-        "name": "MitM HTTP Gateway",
-        "description": "Backend scheduler for the MitM project",
-        "version": env!("CARGO_PKG_VERSION"),
+        "name": "MitM Core Layer",
+        "description": "Backend services for the MitM project",
+        "database": {
+            "name": db_name,
+            "version": db_version
+        },
+        "core_components": [
+            { "name": "mitm_http-server", "version": env!("CARGO_PKG_VERSION") },
+            { "name": "mitm_iam-server", "version": env!("CARGO_PKG_VERSION") },
+            { "name": "mitm_scheduler-server", "version": env!("CARGO_PKG_VERSION") }
+        ]
     });
     axum::response::IntoResponse::into_response(axum::Json(info))
 }
@@ -54,7 +67,7 @@ async fn handle_health(State(state): State<AppState>) -> axum::response::Respons
     }
 }
 
-async fn handle_time() -> axum::response::Response {
+pub async fn handle_time() -> axum::response::Response {
     let now = chrono::Local::now();
     let res = serde_json::json!({
         "local_time": now.to_rfc3339(),
@@ -70,10 +83,8 @@ pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
 
     Router::new()
         .route("/", get(handle_index))
-        .route("/info", get(handle_info))
-        .route("/health", get(handle_health))
-        .route("/time", get(handle_time))
-        .nest("/admin", admin::routes())
+                .route("/health", get(handle_health))
+                .nest("/admin", admin::routes())
         .nest("/admin", jobs::routes())
         .nest("/admin/rbac", rbac::routes())
         .nest("/admin/logs", logs::routes())

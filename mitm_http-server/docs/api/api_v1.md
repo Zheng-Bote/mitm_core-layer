@@ -12,6 +12,7 @@ The API is namespaced by domain:
 - `/api/admin/v1`
 - `/api/transformation/v1`
 - `/api/public/v1`
+- `/api/system/v1`
 
 Query parameters for identifying resources have been replaced with RESTful Path Variables (e.g., `/:id` or `/:name`).
 
@@ -36,6 +37,12 @@ Query parameters for identifying resources have been replaced with RESTful Path 
 ### 2.3 Public API
 - `GET /api/public/v1/dlq`
 - `POST /api/public/v1/dlq/requeue`
+
+### 2.4 System API
+- `GET /api/system/v1/info` (Returns MitM components and database version metadata)
+- `GET /api/system/v1/time` (Returns local and UTC time)
+
+*Note: The root `/health` endpoint remains at the root level for load balancer / AWS health checks.*
 
 ## 3. Content Negotiation (FlatBuffers vs JSON)
 Endpoints that handle large data sets (e.g., audit logs, transformation errors, DLQ) no longer use a `_bin` suffix. Instead, they examine the `Accept` HTTP header:
