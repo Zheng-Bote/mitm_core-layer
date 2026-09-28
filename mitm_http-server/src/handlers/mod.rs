@@ -52,8 +52,8 @@ pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppSt
         },
         "core_components": [
             { "name": "mitm_http-server", "version": env!("CARGO_PKG_VERSION") },
-            { "name": "mitm_iam-server", "version": env!("CARGO_PKG_VERSION") },
-            { "name": "mitm_scheduler-server", "version": env!("CARGO_PKG_VERSION") }
+            { "name": "mitm_iam-server", "version": "1.2.0" },
+            { "name": "mitm_scheduler-server", "version": "1.2.0" }
         ]
     });
     axum::response::IntoResponse::into_response(axum::Json(info))
