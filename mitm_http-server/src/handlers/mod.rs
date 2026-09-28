@@ -79,10 +79,11 @@ pub async fn handle_time() -> axum::response::Response {
 
 pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
     let public_dir = std::path::Path::new(&mitm_dir).join("html").join("public");
-    let serve_dir = tower_http::services::ServeDir::new(public_dir);
+    let spa_service = tower_http::services::ServeDir::new(public_dir.clone())
+        .not_found_service(tower_http::services::ServeFile::new(public_dir.join("index.html")));
 
     Router::new()
-        .route("/", get(handle_index))
+        .route("/template/:name", get(handle_template))
         .route("/info", get(handle_info))
         .route("/health", get(handle_health))
         .route("/time", get(handle_time))
@@ -94,25 +95,31 @@ pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
         .nest("/admin/dlq", dlq::routes())
         .route("/admin/dlq_bin", get(dlq::handle_dlq_bin))
         .nest("/admin/transformation", transformation::routes())
-        .fallback_service(serve_dir)
+        .fallback_service(spa_service)
 }
 
-async fn handle_index(State(state): State<AppState>) -> axum::response::Response {
+async fn handle_template(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> axum::response::Response {
     use axum::response::IntoResponse;
     let mut context = tera::Context::new();
     context.insert("version", env!("CARGO_PKG_VERSION"));
     
-    match state.tera.render("index.html", &context) {
+    let template_name = format!("{}.html", name);
+    
+    match state.tera.render(&template_name, &context) {
         Ok(html) => axum::response::Html(html).into_response(),
         Err(e) => {
-            log::error!("Template render error: {}", e);
+            log::error!("Template render error for {}: {}", template_name, e);
             axum::response::IntoResponse::into_response((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Template rendering failed",
+                axum::http::StatusCode::NOT_FOUND,
+                "Template not found",
             ))
         }
     }
 }
+
 
 
 use casbin::CoreApi;
