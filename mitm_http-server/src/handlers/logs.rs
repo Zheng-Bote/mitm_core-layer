@@ -101,7 +101,7 @@ async fn get_system_logs(state: &AppState, query: &LogQuery) -> Result<Vec<Syste
     qb.build_query_as::<SystemLog>().fetch_all(&state.repo.get().unwrap().pool).await
 }
 
-async fn handle_system_logs(
+pub async fn handle_system_logs(
     State(state): State<AppState>,
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
@@ -115,7 +115,7 @@ async fn handle_system_logs(
     }
 }
 
-async fn handle_system_logs_bin(
+pub async fn handle_system_logs_bin(
     State(state): State<AppState>,
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
@@ -195,7 +195,7 @@ async fn get_job_audit_logs(state: &AppState, query: &LogQuery) -> Result<Vec<Jo
     qb.build_query_as::<JobAuditLog>().fetch_all(&state.repo.get().unwrap().pool).await
 }
 
-async fn handle_job_audit_logs(
+pub async fn handle_job_audit_logs(
     State(state): State<AppState>,
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
@@ -209,7 +209,7 @@ async fn handle_job_audit_logs(
     }
 }
 
-async fn handle_job_audit_logs_bin(
+pub async fn handle_job_audit_logs_bin(
     State(state): State<AppState>,
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
@@ -288,7 +288,7 @@ async fn get_admin_audit_logs(state: &AppState, query: &LogQuery) -> Result<Vec<
     qb.build_query_as::<AdminAuditLog>().fetch_all(&state.repo.get().unwrap().pool).await
 }
 
-async fn handle_admin_audit_logs(
+pub async fn handle_admin_audit_logs(
     State(state): State<AppState>,
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
@@ -302,7 +302,7 @@ async fn handle_admin_audit_logs(
     }
 }
 
-async fn handle_admin_audit_logs_bin(
+pub async fn handle_admin_audit_logs_bin(
     State(state): State<AppState>,
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
