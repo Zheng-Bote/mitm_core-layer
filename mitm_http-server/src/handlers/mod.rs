@@ -78,7 +78,6 @@ pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
         .nest("/admin/rbac", rbac::routes())
         .nest("/admin/logs", logs::routes())
         .nest("/api", api_v1::routes(state.clone()))
-        .nest("/api", api_v1::routes(state.clone()))
         .nest("/admin/dlq", dlq::routes())
         .route("/admin/dlq_bin", get(dlq::handle_dlq_bin))
         .nest("/admin/transformation", transformation::routes())
