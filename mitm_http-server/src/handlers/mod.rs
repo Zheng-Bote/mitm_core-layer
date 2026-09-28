@@ -20,6 +20,7 @@ pub struct AppState {
     pub repo: Arc<tokio::sync::OnceCell<crate::db::Repository>>,
     pub config: Arc<mitm_common::config::DBConfig>,
     pub tera: Arc<tera::Tera>,
+    pub enforcer: Arc<tokio::sync::RwLock<casbin::Enforcer>>,
 }
 
 #[derive(serde::Serialize)]

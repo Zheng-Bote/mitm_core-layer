@@ -1,3 +1,4 @@
+use casbin::CoreApi;
 /*
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -159,11 +160,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         };
                                         
+
+                                        // Initialize Casbin Enforcer
+                                        let model_path = std::path::PathBuf::from(&parsed_cfg.mitm_dir).join("config").join("model.conf");
+                                        let m = casbin::DefaultModel::from_file(model_path.to_str().unwrap()).await.unwrap();
+                                        let a = sqlx_adapter::SqlxAdapter::new_with_pool(repo_cell_for_uds.get().unwrap().pool.clone()).await.unwrap();
+                                        let enforcer = casbin::Enforcer::new(m, a).await.unwrap();
+
                                         let app_state = handlers::AppState { 
                                             repo: repo_cell_for_uds.clone(), 
                                             config: std::sync::Arc::new(parsed_cfg.clone()),
                                             tera: std::sync::Arc::new(tera),
+                                            enforcer: std::sync::Arc::new(tokio::sync::RwLock::new(enforcer)),
                                         };
+
                                         
                                         let config_clone = parsed_cfg.clone();
                                         let auth_layer = axum::middleware::from_fn(move |req, next| {
@@ -273,3 +283,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
