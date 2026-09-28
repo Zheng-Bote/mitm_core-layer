@@ -46,7 +46,7 @@ pub struct MappingTransformation { pub id: uuid::Uuid, pub name: String, pub des
 #[derive(Serialize, sqlx::FromRow)]
 pub struct MappingValidation { pub id: uuid::Uuid, pub name: String, pub description: Option<String>, pub parameters: Option<serde_json::Value>, pub version: i32, }
 #[derive(Serialize, sqlx::FromRow)]
-pub struct TransformationError { pub id: uuid::Uuid, pub raw_ingestion_id: uuid::Uuid, pub failed_field: String, pub rule_name: String, pub error_message: String, pub created_at: chrono::DateTime<chrono::Utc>, }
+pub struct TransformationError { pub id: uuid::Uuid, pub raw_ingestion_id: Option<uuid::Uuid>, pub failed_field: String, pub rule_name: String, pub error_message: String, pub created_at: chrono::DateTime<chrono::Utc>, }
 #[derive(Serialize, sqlx::FromRow)]
 pub struct TopicDependency { pub topic: String, pub required_sources: Vec<String>, }
 
@@ -140,7 +140,7 @@ async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<Pa
 
             for e in &res {
                 let id_str = fb.create_string(&e.id.to_string());
-                let corr_str = fb.create_string(&e.raw_ingestion_id.to_string());
+                let corr_str = e.raw_ingestion_id.map(|uid| fb.create_string(&uid.to_string()));
                 let field_str = fb.create_string(&e.failed_field);
                 let rule_str = fb.create_string(&e.rule_name);
                 let msg_str = fb.create_string(&e.error_message);
@@ -148,7 +148,7 @@ async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<Pa
                 
                 let err_off = schematas::TransformationError::create(&mut fb, &schematas::TransformationErrorArgs {
                     id: Some(id_str),
-                    correlation_id: Some(corr_str), // Using correlation_id mapping to raw_ingestion_id for flatbuffer
+                    correlation_id: corr_str, // Using correlation_id mapping to raw_ingestion_id for flatbuffer
                     topic: None,
                     failed_field: Some(field_str),
                     rule_name: Some(rule_str),

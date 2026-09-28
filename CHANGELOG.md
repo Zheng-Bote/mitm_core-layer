@@ -5,6 +5,16 @@ All notable changes to the MitM-2 Core Layer project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-28
+
+### Fixed
+
+- **Admin API**: Replaced all remaining mock endpoints in `admin.rs` (`/admin/credentials`, `/admin/delivery_targets`) with actual database queries and IAM IPC integration (AES-GCM encryption/decryption).
+- **Admin API**: Fixed mocked backup version logic. `/admin/backup` and `/admin/restore` now dynamically use and validate against the current application build version (`env!("CARGO_PKG_VERSION")`).
+- **Admin API**: Fixed `/admin/key-rotation` which was previously mocked. The endpoint now correctly rotates the Master-Key, marks old DEKs as inactive, inserts the new encrypted DEK, and stores a correct audit log count.
+- **Admin API**: Fixed HTTP 500 Internal Server Error on `/admin/transformation/errors_bin` by allowing `raw_ingestion_id` to safely parse `NULL` values from PostgreSQL.
+- **Log API**: Fixed date-range filtering (`?from` & `?to`) across all log endpoints (`system_logs`, `job_audit_logs`, `admin_audit_logs`). Added fallback parser for simple date formats (`yyyy-MM-dd`) sent by the frontend, properly adjusting the time boundaries to cover the full day.
+
 ## [1.1.0] - 2026-09-27
 
 ### Added
