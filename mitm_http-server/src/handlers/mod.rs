@@ -12,6 +12,7 @@ pub mod admin;
 pub mod jobs;
 pub mod rbac;
 pub mod logs;
+pub mod api_v1;
 pub mod dlq;
 pub mod transformation;
 
@@ -63,7 +64,7 @@ async fn handle_time() -> axum::response::Response {
     axum::response::IntoResponse::into_response(axum::Json(res))
 }
 
-pub fn configure_routes(mitm_dir: String) -> Router<AppState> {
+pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
     let public_dir = std::path::Path::new(&mitm_dir).join("html").join("public");
     let serve_dir = tower_http::services::ServeDir::new(public_dir);
 
@@ -76,6 +77,8 @@ pub fn configure_routes(mitm_dir: String) -> Router<AppState> {
         .nest("/admin", jobs::routes())
         .nest("/admin/rbac", rbac::routes())
         .nest("/admin/logs", logs::routes())
+        .nest("/api", api_v1::routes(state.clone()))
+        .nest("/api", api_v1::routes(state.clone()))
         .nest("/admin/dlq", dlq::routes())
         .route("/admin/dlq_bin", get(dlq::handle_dlq_bin))
         .nest("/admin/transformation", transformation::routes())
@@ -113,7 +116,7 @@ pub async fn authz_middleware(
     let method = req.method().as_str().to_string();
     
     let mut allowed = false;
-    let mut enforcer = state.enforcer.write().await;
+    let enforcer = state.enforcer.read().await;
     
     for role in auth.roles {
         if let Ok(true) = enforcer.enforce((role.clone(), path.clone(), method.clone())) {

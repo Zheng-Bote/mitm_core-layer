@@ -194,7 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let ready_layer = middleware::from_fn_with_state(app_state.clone(), readiness_middleware);
                                         let error_layer = middleware::from_fn_with_state(app_state.clone(), error_logging_middleware);
 
-                                        let app = handlers::configure_routes(parsed_cfg.mitm_dir.clone())
+                                        let app = handlers::configure_routes(parsed_cfg.mitm_dir.clone(), app_state.clone())
                                             .layer(ready_layer)
                                             .layer(error_layer)
                                             .layer(auth_layer)
