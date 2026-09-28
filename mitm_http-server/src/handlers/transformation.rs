@@ -50,35 +50,35 @@ pub struct TransformationError { pub id: uuid::Uuid, pub raw_ingestion_id: Optio
 #[derive(Serialize, sqlx::FromRow)]
 pub struct TopicDependency { pub topic: String, pub required_sources: Vec<String>, }
 
-async fn handle_sources(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
+pub async fn handle_sources(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, type, topic, version FROM mapping_source ORDER BY name LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingSource>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
-async fn handle_targets(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
+pub async fn handle_targets(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, topic, field_name, data_type, is_required, encrypted, version FROM mapping_target_field ORDER BY topic LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingTargetField>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
-async fn handle_rules(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
+pub async fn handle_rules(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, source_id, target_field_id, source_field, priority, transformation_chain, validation_chain, version FROM mapping_rule ORDER BY priority LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingRule>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
-async fn handle_transformations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
+pub async fn handle_transformations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, description, parameters, version FROM mapping_transformation ORDER BY name LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingTransformation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
-async fn handle_validations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
+pub async fn handle_validations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, description, parameters, version FROM mapping_validation ORDER BY name LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingValidation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
@@ -86,7 +86,7 @@ async fn handle_validations(State(state): State<AppState>, Query(query): Query<P
     }
 }
 
-async fn handle_errors(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
+pub async fn handle_errors(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let mut builder = sqlx::QueryBuilder::new("SELECT id, raw_ingestion_id, failed_field, rule_name, error_message, created_at FROM transformation_errors WHERE 1=1 ");
     
     if let Some(ref from) = query.from {
@@ -112,7 +112,7 @@ async fn handle_errors(State(state): State<AppState>, Query(query): Query<Pagina
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
-async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
+pub async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let mut builder = sqlx::QueryBuilder::new("SELECT id, raw_ingestion_id, failed_field, rule_name, error_message, created_at FROM transformation_errors WHERE 1=1 ");
     
     if let Some(ref from) = query.from {
@@ -174,7 +174,7 @@ async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<Pa
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
-async fn handle_topic_dependencies(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_topic_dependencies(State(state): State<AppState>) -> impl IntoResponse {
     let sql = "SELECT topic, required_sources FROM topic_dependencies ORDER BY topic";
     match sqlx::query_as::<_, TopicDependency>(sql).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
