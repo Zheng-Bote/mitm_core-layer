@@ -39,4 +39,4 @@ It also modernizes the endpoints towards RESTful resource paths and Content Nego
 - [ ] Authorization policies (Rules) for the `v1` API are loaded dynamically from the PostgreSQL database.
 - [ ] New `v1` API Endpoints use Path Variables natively.
 - [ ] New `v1` API Endpoints utilize Content Negotiation (`Accept` header) instead of `_bin` suffixes.
-- [ ] API Documentation (`docs/api/README.md`) is updated to reflect the new paths, REST semantics, and the dynamic policy-based access model, while noting the legacy API status.
+- [ ] API Documentation is restructured: The existing `docs/API.md` is moved to `docs/api/api_v0.md` (representing the legacy API), and a new `docs/api/api_v1.md` is created to document the new paths, REST semantics, and dynamic policy-based access model for the V1 API.
