@@ -1,3 +1,4 @@
+use casbin::MgmtApi;
 use casbin::CoreApi;
 /*
  * SPDX-License-Identifier: Apache-2.0
@@ -161,11 +162,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         };
                                         
 
+
                                         // Initialize Casbin Enforcer
                                         let model_path = std::path::PathBuf::from(&parsed_cfg.mitm_dir).join("config").join("model.conf");
                                         let m = casbin::DefaultModel::from_file(model_path.to_str().unwrap()).await.unwrap();
                                         let a = sqlx_adapter::SqlxAdapter::new_with_pool(repo_cell_for_uds.get().unwrap().pool.clone()).await.unwrap();
-                                        let enforcer = casbin::Enforcer::new(m, a).await.unwrap();
+                                        let mut enforcer = casbin::Enforcer::new(m, a).await.unwrap();
+                                        
+                                        // Seed default policies (Task 2)
+                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]).await;
+                                        }
+                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]).await;
+                                        }
+
 
                                         let app_state = handlers::AppState { 
                                             repo: repo_cell_for_uds.clone(), 
