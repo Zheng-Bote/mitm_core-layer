@@ -5,6 +5,14 @@ All notable changes to the MitM-2 Core Layer project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-09-28
+
+### Added
+- **SPA Routing:** Configured the HTTP Server to act as a proper host for Single Page Applications (e.g. Angular). The fallback route now delegates `404 Not Found` requests to the static `index.html`, enabling client-side routing.
+
+### Changed
+- **Tera Templates:** Moved the dynamic Tera template rendering from the root (`/`) to the `/template/:name` namespace to avoid conflicts with static SPA assets.
+
 ## [1.2.0] - 2026-09-28
 
 ### Added
