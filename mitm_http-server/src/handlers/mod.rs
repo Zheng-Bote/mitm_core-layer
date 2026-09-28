@@ -98,3 +98,40 @@ async fn handle_index(State(state): State<AppState>) -> axum::response::Response
         }
     }
 }
+
+
+use casbin::CoreApi;
+
+pub async fn authz_middleware(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let path = req.uri().path().to_string();
+    let method = req.method().as_str().to_string();
+    
+    let mut allowed = false;
+    let mut enforcer = state.enforcer.write().await;
+    
+    for role in auth.roles {
+        if let Ok(true) = enforcer.enforce((role.clone(), path.clone(), method.clone())) {
+            allowed = true;
+            break;
+        }
+    }
+    
+    if allowed {
+        next.run(req).await
+    } else {
+        let err = ErrorResponse {
+            errors: vec![JsonApiError {
+                status: "403".into(),
+                title: "Forbidden".into(),
+                detail: Some("You do not have permission to access this resource".into()),
+            }],
+        };
+        (axum::http::StatusCode::FORBIDDEN, axum::Json(err)).into_response()
+    }
+}
