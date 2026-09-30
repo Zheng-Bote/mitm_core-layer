@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-09-30
+
+### Added
+- **System Info:** Added `database.size` property to the `/api/system/v1/info` endpoint output.
+- **Audit Logging:** Access denied events (`403 Forbidden`) by Casbin are now properly logged to `admin_audit_logs` including username and details.
+
+### Fixed
+- **SPA Routing:** Bypassed the `readiness_middleware` for the root path `/` to return a `200 OK` (via SPA fallback) immediately upon startup without yielding `503 Service Unavailable`.
+- **Casbin AuthZ:** Fixed the Casbin matcher to use explicit role matching and `keyMatch` for wildcards. Also fixed Axum `req.uri().path()` truncation in nested routers by relying on `axum::extract::OriginalUri` so Casbin correctly evaluates the full URI.
+- **System Info:** Simplified the database version string in `/api/system/v1/info` to match the format seen in `/admin/dashboard/stats` (e.g. `PostgreSQL 18.2`).
+
 ## [1.2.1] - 2026-09-28
 
 ### Added

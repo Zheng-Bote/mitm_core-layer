@@ -50,8 +50,8 @@ async fn readiness_middleware(
 ) -> axum::response::Response {
     let path = req.uri().path();
     
-    // Exclude basic health and info checks from the blockade
-    if path == "/health" || path == "/info" {
+    // Exclude basic health, info, and SPA root from the blockade
+    if path == "/health" || path == "/info" || path == "/" {
         return next.run(req).await;
     }
 
@@ -178,7 +178,7 @@ g = _, _
 e = some(where (p.eft == allow))
 
 [matchers]
-m = g(r.sub, p.sub) && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
+m = r.sub == p.sub && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.obj == p.obj) && (p.act == \".*\" || r.act == p.act || regexMatch(r.act, p.act))
 ";
                                         let m = casbin::DefaultModel::from_str(model_text).await.unwrap();
                                         let a = sqlx_adapter::SqlxAdapter::new_with_pool(repo_cell_for_uds.get().unwrap().pool.clone()).await.unwrap();
@@ -187,6 +187,9 @@ m = g(r.sub, p.sub) && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
                                         // Seed default policies (Task 2)
                                         if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]) {
                                             let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]).await;
+                                        }
+                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/logs/system".to_string(), ".*".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/admin/v1/logs/system".to_string(), ".*".to_string()]).await;
                                         }
                                         if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]) {
                                             let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]).await;

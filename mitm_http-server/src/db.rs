@@ -22,6 +22,17 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn log_admin(&self, username: &str, action: &str, details: serde_json::Value) -> Result<(), sqlx::Error> {
+        sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+            .bind(username)
+            .bind(action)
+            .bind(details)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+
     pub async fn new(config: &DBConfig) -> Result<Self, Box<dyn Error>> {
         let db_url = format!(
             "postgres://{}:{}@{}:{}/{}?sslmode={}",

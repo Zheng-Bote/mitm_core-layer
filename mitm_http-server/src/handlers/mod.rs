@@ -2,6 +2,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use casbin::MgmtApi;
+
 use axum::Router;
 use axum::routing::get;
 use std::sync::Arc;
@@ -38,9 +40,21 @@ pub struct ErrorResponse {
 }
 
 pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppState>) -> axum::response::Response {
-    let db_version: String = sqlx::query_scalar("SELECT version()")
+    let raw_db_version: String = sqlx::query_scalar("SELECT version()")
         .fetch_one(&state.repo.get().unwrap().pool).await.unwrap_or_else(|_| "Unknown".into());
+    let db_version = if raw_db_version.starts_with("PostgreSQL ") {
+        let parts: Vec<&str> = raw_db_version.split_whitespace().collect();
+        if parts.len() >= 2 {
+            format!("{} {}", parts[0], parts[1])
+        } else {
+            raw_db_version
+        }
+    } else {
+        raw_db_version
+    };
     let db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&state.repo.get().unwrap().pool).await.unwrap_or_else(|_| "Unknown".into());
+    let db_size: String = sqlx::query_scalar("SELECT pg_size_pretty(pg_database_size(current_database()))")
         .fetch_one(&state.repo.get().unwrap().pool).await.unwrap_or_else(|_| "Unknown".into());
 
     let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
@@ -57,7 +71,8 @@ pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppSt
         "description": "Backend services for the MitM project",
         "database": {
             "name": db_name,
-            "version": db_version
+            "version": db_version,
+            "size": db_size
         },
         "core_components": [
             { "name": "mitm_http-server", "version": env!("CARGO_PKG_VERSION") },
@@ -136,19 +151,21 @@ use casbin::CoreApi;
 pub async fn authz_middleware(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::extract::OriginalUri(original_uri): axum::extract::OriginalUri,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let path = req.uri().path().to_string();
+    let path = original_uri.path().to_string();
     let method = req.method().as_str().to_string();
     
     let mut allowed = false;
     let enforcer = state.enforcer.read().await;
     
-    log::info!("AuthZ check for path: {}, method: {}, user roles: {:?}", path, method, auth.roles);
+    let has_pol = enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]);
+    log::error!("DEBUG AuthZ check: path={}, method={}, roles={:?}, policy_exists={}", path, method, auth.roles, has_pol);
     
-    for role in auth.roles {
+    for role in &auth.roles {
         if let Ok(true) = enforcer.enforce((role.clone(), path.clone(), method.clone())) {
             allowed = true;
             break;
@@ -158,6 +175,15 @@ pub async fn authz_middleware(
     if allowed {
         next.run(req).await
     } else {
+        if let Some(repo) = state.repo.get() {
+            let details = serde_json::json!({
+                "path": path,
+                "method": method,
+                "roles": auth.roles,
+            });
+            let _ = repo.log_admin(&auth.username, "FORBIDDEN_ACCESS", details).await;
+        }
+
         let err = ErrorResponse {
             errors: vec![JsonApiError {
                 status: "403".into(),
