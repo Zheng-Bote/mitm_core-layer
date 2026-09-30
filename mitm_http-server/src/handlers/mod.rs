@@ -146,6 +146,8 @@ pub async fn authz_middleware(
     let mut allowed = false;
     let enforcer = state.enforcer.read().await;
     
+    log::info!("AuthZ check for path: {}, method: {}, user roles: {:?}", path, method, auth.roles);
+    
     for role in auth.roles {
         if let Ok(true) = enforcer.enforce((role.clone(), path.clone(), method.clone())) {
             allowed = true;
