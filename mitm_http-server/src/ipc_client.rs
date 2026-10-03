@@ -37,9 +37,9 @@ pub async fn authenticate_via_ipc(username: &str, token: &str, socket_path: &std
 }
 
 pub async fn auth_middleware(
+    axum::extract::State(state): axum::extract::State<crate::handlers::AppState>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
-    config: mitm_common::config::DBConfig,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     use axum::http::StatusCode;
@@ -47,6 +47,7 @@ pub async fn auth_middleware(
     use serde::Serialize;
     
     let path = req.uri().path();
+    // Protect these paths. We also need to allow /api/user/v1 through without auth for creating sessions, but wait, the check is explicitly allowing anything else!
     if !path.starts_with("/admin") && !path.starts_with("/api/admin/v1") && !path.starts_with("/api/transformation/v1") {
         return next.run(req).await;
     }
@@ -64,12 +65,12 @@ pub async fn auth_middleware(
         errors: Vec<JsonApiError>,
     }
     
-    let make_error = || {
+    let make_error = |detail: &str| {
         let err_resp = ErrorResponse {
             errors: vec![JsonApiError {
                 status: "401".to_string(),
                 title: "Unauthorized".to_string(),
-                detail: Some("Missing or invalid authorization credentials.".to_string()),
+                detail: Some(detail.to_string()),
             }],
         };
         (StatusCode::UNAUTHORIZED, Json(err_resp)).into_response()
@@ -77,40 +78,105 @@ pub async fn auth_middleware(
     
     let auth_header = match req.headers().get(axum::http::header::AUTHORIZATION) {
         Some(h) => h.to_str().unwrap_or(""),
-        None => return make_error(),
+        None => return make_error("Missing or invalid authorization credentials."),
     };
     
-    if !auth_header.starts_with("Basic ") {
-        return make_error();
-    }
-    
-    let encoded = &auth_header[6..];
-    let decoded = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded) {
-        Ok(d) => d,
-        Err(_) => return make_error(),
+    let mut auth_resp = mitm_common::ipc::AuthResponse {
+        success: false,
+        username: String::new(),
+        roles: vec![],
+        error_message: None,
     };
-    
-    let credentials = String::from_utf8_lossy(&decoded);
-    let parts: Vec<&str> = credentials.splitn(2, ':').collect();
-    if parts.len() != 2 {
-        return make_error();
-    }
-    
-    let username = parts[0];
-    let token = parts[1];
-    let socket_dir = std::path::PathBuf::from(&config.socket_dir);
-    let socket_path = socket_dir.join("mitm_iam.sock");
 
-    let auth_resp = match authenticate_via_ipc(&username, &token, &socket_path).await {
-        Ok(r) => r,
-        Err(e) => {
-            log::error!("Auth IPC Error: {}", e);
-            return make_error();
+    if auth_header.starts_with("Bearer ") {
+        let token_str = &auth_header[7..];
+        let token_uuid = match uuid::Uuid::parse_str(token_str) {
+            Ok(u) => u,
+            Err(_) => return make_error("Invalid Bearer token format."),
+        };
+
+        let now = chrono::Utc::now();
+        
+        let pool = &state.repo.get().unwrap().pool;
+
+        let session_opt = match sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>)>(
+            "SELECT os_user, expires_at, last_active_at FROM user_sessions WHERE session_token = $1"
+        )
+        .bind(token_uuid)
+        .fetch_optional(pool).await {
+            Ok(s) => s,
+            Err(_) => return make_error("Database error verifying session."),
+        };
+
+        if let Some(session) = session_opt {
+            if session.1 < now {
+                return make_error("Session expired (absolute TTL).");
+            }
+            if session.2.unwrap_or(now) + chrono::Duration::hours(2) < now {
+                return make_error("Session expired (idle timeout).");
+            }
+            
+            // Touch session
+            let _ = sqlx::query(
+                "UPDATE user_sessions SET last_active_at = $1 WHERE session_token = $2"
+            )
+            .bind(now)
+            .bind(token_uuid)
+            .execute(pool).await;
+
+            auth_resp.success = true;
+            auth_resp.username = session.0.clone();
+            
+            // Query DB for actual roles, for now we mock based on admin_users check
+            let is_admin = sqlx::query_as::<_, (i32,)>(
+                "SELECT id FROM admin_users WHERE username = $1 AND is_active = true"
+            )
+            .bind(&session.0)
+            .fetch_optional(pool).await.unwrap_or(None).is_some();
+
+            if is_admin {
+                auth_resp.roles = vec!["ADMIN".to_string(), "VIEWER".to_string(), "UPLOADER".to_string()];
+            } else {
+                auth_resp.roles = vec!["VIEWER".to_string()];
+            }
+
+        } else {
+            return make_error("Invalid session token.");
         }
-    };
-    
+    } else if auth_header.starts_with("Basic ") {
+        // Legacy Basic Auth fallback via IAM UDS
+        let encoded = &auth_header[6..];
+        let decoded = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded) {
+            Ok(d) => d,
+            Err(_) => return make_error("Invalid Basic encoding."),
+        };
+        
+        let credentials = String::from_utf8_lossy(&decoded);
+        let parts: Vec<&str> = credentials.splitn(2, ':').collect();
+        if parts.len() != 2 {
+            return make_error("Invalid Basic format.");
+        }
+        
+        let username = parts[0];
+        let token = parts[1];
+        let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
+        let socket_path = socket_dir.join("mitm_iam.sock");
+
+        match authenticate_via_ipc(&username, &token, &socket_path).await {
+            Ok(r) => {
+                auth_resp = r;
+            },
+            Err(e) => {
+                log::error!("Auth IPC Error: {}", e);
+                return make_error("IAM Backend error.");
+            }
+        };
+    } else {
+        return make_error("Unsupported authorization scheme.");
+    }
+
     if !auth_resp.success {
-        return make_error();
+        return make_error("Authentication failed.");
     }
     
     let mut req = req;

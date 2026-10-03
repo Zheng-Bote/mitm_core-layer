@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [1.2.0] - 2026-09-28
+
+### Added
+- **Dynamic Component Versioning (Issue #38):** Extended the `mitm_common` IPC protocol with a new `GetInfo` request.
+- **HTTP Info Refactoring:** The HTTP server's `/info` endpoint no longer hardcodes the component versions. It now fetches the runtime `CARGO_PKG_VERSION` from the `iam-server` and `scheduler-server` dynamically via UDS. If a service is offline, it gracefully reports `"offline"`.
+
 ## [0.1.2] - 2026-09-23
 
 ### Fixed
@@ -23,3 +30,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Issue #1**: Fixed config precedence. Environment variables now correctly override values defined in the `.enc` configuration files.
+

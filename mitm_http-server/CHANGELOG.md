@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-03
+
+### Added
+- **API Versioning**: Added the `### 2.5 User API` namespace (`/api/user/v1`) to the `api_v1.md` documentation, formally introducing the `POST /api/user/v1/session` and `GET /api/user/v1/roles` endpoints for managing the currently authenticated user's session.
+- **Security Policy**: Officially documented a maximum 24h Absolute TTL and a 2h Idle Timeout for user sessions managed via PostgreSQL.
+
 ## [1.3.1] - 2026-09-30
 
 ### Added
@@ -36,11 +42,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.1] - 2026-09-28
 
 ### Fixed
+
+- **Admin API**: Replaced all remaining mock endpoints in `admin.rs` (`/admin/credentials`, `/admin/delivery_targets`) with actual database queries and IAM IPC integration (AES-GCM encryption/decryption).
+- **Admin API**: Fixed mocked backup version logic. `/admin/backup` and `/admin/restore` now dynamically use and validate against the current application build version (`env!("CARGO_PKG_VERSION")`).
+- **Admin API**: Fixed `/admin/key-rotation` which was previously mocked. The endpoint now correctly rotates the Master-Key, marks old DEKs as inactive, inserts the new encrypted DEK, and stores a correct audit log count.
+- **Admin API**: Fixed HTTP 500 Internal Server Error on `/admin/transformation/errors_bin` by allowing `raw_ingestion_id` to safely parse `NULL` values from PostgreSQL.
+- **Log API**: Fixed date-range filtering (`?from` & `?to`) across all log endpoints (`system_logs`, `job_audit_logs`, `admin_audit_logs`). Added fallback parser for simple date formats (`yyyy-MM-dd`) sent by the frontend, properly adjusting the time boundaries to cover the full day.
 - Replaced all mock endpoints in `admin.rs` with actual database queries and UDS IPC.
 - Fixed version logic in `backup` / `restore`.
 - Fixed `/key-rotation` endpoint.
 - Fixed date-range parsing for `?from` & `?to` query params in logs to support frontend `yyyy-MM-dd` formats.
 - Fixed nullable UUID parse crash in `errors_bin`.
+
+## [1.1.0] - 2026-09-27
+
+### Added
+
+- **Configuration**: The configuration loader now prioritizes explicitly provided command-line config files over Environment Variables. If no CLI parameter is provided, it gracefully falls back to ENVs before checking default locations.
+- **Logging**: All core components (`http-server`, `iam-server`, `scheduler-server`) now initialize `env_logger` using the `MITM_LOG_LEVEL` environment variable (defaulting to `INFO` if not set), ensuring consistent log outputs across the stack.
+- **Admin Authentication**: Implemented "Trust Proxy" (Option A) authentication for frontend users. The IAM server now skips explicit password validation for admin users defined via `MITM_ADMINS` or frontend requests, instead verifying user existence and loading the assigned RBAC roles.
+- **Documentation**: Added an Apache-2.0 `NOTICE` file.
+- **Tasks**: Completed and verified tasks for DB startup/shutdown logging across all services.
+
+### Fixed
+
+- **Process Orchestration**: The `http-server` supervisor no longer defaults to passing a hardcoded `"config.json"` string to child processes if it was started without parameters. It now dynamically inherits the parameter behavior, ensuring ENV-only startups function correctly.
+- Removed unused imports and fixed all compiler warnings (e.g., `sqlx::postgres` in `db.rs`).
 
 ## [1.0.2] - 2026-09-23
 

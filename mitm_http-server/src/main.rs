@@ -204,10 +204,10 @@ m = r.sub == p.sub && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.ob
                                         };
 
                                         
-                                        let config_clone = parsed_cfg.clone();
-                                        let auth_layer = axum::middleware::from_fn(move |req, next| {
-                                            crate::ipc_client::auth_middleware(req, next, config_clone.clone())
-                                        });
+                                        let auth_layer = axum::middleware::from_fn_with_state(
+                                            app_state.clone(),
+                                            crate::ipc_client::auth_middleware
+                                        );
 
                                         let ready_layer = middleware::from_fn_with_state(app_state.clone(), readiness_middleware);
                                         let error_layer = middleware::from_fn_with_state(app_state.clone(), error_logging_middleware);

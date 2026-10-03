@@ -13,6 +13,7 @@ The API is namespaced by domain:
 - `/api/transformation/v1`
 - `/api/public/v1`
 - `/api/system/v1`
+- `/api/user/v1`
 
 Query parameters for identifying resources have been replaced with RESTful Path Variables (e.g., `/:id` or `/:name`).
 
@@ -41,6 +42,11 @@ Query parameters for identifying resources have been replaced with RESTful Path 
 ### 2.4 System API
 - `GET /api/system/v1/info` (Returns MitM components and database version metadata)
 - `GET /api/system/v1/time` (Returns local and UTC time)
+
+### 2.5 User API
+Endpoints for the currently authenticated user's session.
+- `POST /api/user/v1/session` (Establishes a new session. **Constraints:** 24h Absolute TTL, 2h Idle Timeout enforced via PostgreSQL.)
+- `GET /api/user/v1/roles` (Retrieves the RBAC roles associated with the current session.)
 
 *Note: The root `/health` endpoint remains at the root level for load balancer / AWS health checks.*
 
