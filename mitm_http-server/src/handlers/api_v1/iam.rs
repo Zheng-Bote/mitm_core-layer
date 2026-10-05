@@ -1,4 +1,4 @@
-use axum::{Router, routing::{get, post, delete}, extract::{State, Path, Query}};
+use axum::{Router, routing::{get, post}, extract::{State, Path, Query}};
 use crate::handlers::AppState;
 use axum::response::IntoResponse;
 
