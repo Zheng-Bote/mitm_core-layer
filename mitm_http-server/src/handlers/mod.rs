@@ -104,12 +104,21 @@ pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
     let spa_service = tower_http::services::ServeDir::new(public_dir.clone())
         .not_found_service(tower_http::services::ServeFile::new(public_dir.join("index.html")));
 
+    let spa_router = Router::new()
+        .fallback_service(spa_service)
+        .layer(axum::middleware::map_response(|mut res: axum::response::Response| async move {
+            if res.status() == axum::http::StatusCode::NOT_FOUND {
+                *res.status_mut() = axum::http::StatusCode::OK;
+            }
+            res
+        }));
+
     Router::new()
         .route("/template/:name", get(handle_template))
         .route("/info", get(handle_info))
         .route("/health", get(handle_health))
         .route("/time", get(handle_time))
-                .nest("/admin", admin::routes())
+        .nest("/admin", admin::routes())
         .nest("/admin", jobs::routes())
         .nest("/admin/rbac", rbac::routes())
         .nest("/admin/logs", logs::routes())
@@ -117,7 +126,7 @@ pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
         .nest("/admin/dlq", dlq::routes())
         .route("/admin/dlq_bin", get(dlq::handle_dlq_bin))
         .nest("/admin/transformation", transformation::routes())
-        .fallback_service(spa_service)
+        .fallback_service(spa_router)
 }
 
 async fn handle_template(
