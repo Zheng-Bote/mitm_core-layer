@@ -6,9 +6,13 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/users", get(crate::handlers::rbac::handle_get_users))
         .route("/users", post(crate::handlers::rbac::handle_create_user))
-        .route("/users/:id", delete(handle_delete_user_v1))
+        .route("/users/:id", get(handle_get_user_roles_v1).delete(handle_delete_user_v1))
         .route("/roles", get(crate::handlers::rbac::handle_get_roles))
         .route("/assign-role", post(crate::handlers::rbac::handle_assign_roles))
+}
+
+async fn handle_get_user_roles_v1(State(state): State<AppState>, Path(id): Path<i32>) -> impl IntoResponse {
+    crate::handlers::rbac::handle_get_user_roles(State(state), Query(crate::handlers::rbac::GetUserRolesQuery { user_id: id })).await
 }
 
 async fn handle_delete_user_v1(State(state): State<AppState>, Path(id): Path<i32>) -> impl IntoResponse {
