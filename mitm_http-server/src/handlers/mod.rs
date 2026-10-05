@@ -162,8 +162,7 @@ pub async fn authz_middleware(
     let mut allowed = false;
     let enforcer = state.enforcer.read().await;
     
-    let has_pol = enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]);
-    log::error!("DEBUG AuthZ check: path={}, method={}, roles={:?}, policy_exists={}", path, method, auth.roles, has_pol);
+    log::debug!("AuthZ check: path={}, method={}, roles={:?}", path, method, auth.roles);
     
     for role in &auth.roles {
         if let Ok(true) = enforcer.enforce((role.clone(), path.clone(), method.clone())) {
