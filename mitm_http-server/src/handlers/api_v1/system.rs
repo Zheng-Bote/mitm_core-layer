@@ -11,6 +11,9 @@ pub fn protected_routes() -> Router<AppState> {
     Router::new()
         .route("/dashboard", get(handle_dashboard_stats))
         .route("/backup", get(crate::handlers::admin::handle_backup))
+        .route("/restore", axum::routing::post(crate::handlers::admin::handle_restore))
+        .route("/key-rotation", axum::routing::post(crate::handlers::admin::handle_key_rotation))
+        .route("/storage-keys", get(crate::handlers::admin::handle_get_storage_keys))
 }
 
 #[derive(serde::Serialize)]

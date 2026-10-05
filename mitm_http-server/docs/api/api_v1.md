@@ -32,7 +32,7 @@ System operations, health, and backups.
 | `/api/v1/system/info` | GET | None |
 | `/api/v1/system/time` | GET | None |
 | `/api/v1/system/dashboard` | GET | VIEWER |
-| `/api/v1/system/backup` | POST | ADMIN |
+| `/api/v1/system/backup` | GET | ADMIN |
 | `/api/v1/system/restore` | POST | ADMIN |
 | `/api/v1/system/key-rotation` | POST | ADMIN |
 | `/api/v1/system/storage-keys` | GET | ADMIN |
@@ -87,7 +87,7 @@ Identity & Access Management (Users & Roles).
 | API-Endpoint | Method | required role |
 | --- | --- | --- |
 | `/api/v1/iam/users` | GET, POST | ADMIN |
-| `/api/v1/iam/users/:id` | DELETE | ADMIN |
+| `/api/v1/iam/users/:id` | GET, DELETE | ADMIN |
 | `/api/v1/iam/roles` | GET | ADMIN |
 | `/api/v1/iam/assign-role` | POST | ADMIN |
 
