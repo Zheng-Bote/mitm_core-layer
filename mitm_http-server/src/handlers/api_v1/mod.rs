@@ -21,8 +21,10 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .nest("/iam", iam::routes())
         .layer(authz_layer);
 
-    Router::new()
+    let api_v1_router = Router::new()
         .nest("/auth", auth::routes())
         .nest("/system", system::routes())
-        .merge(protected)
+        .merge(protected);
+        
+    Router::new().nest("/v1", api_v1_router)
 }
