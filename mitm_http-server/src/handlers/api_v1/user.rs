@@ -13,6 +13,7 @@ use crate::handlers::AppState;
 #[derive(Deserialize)]
 pub struct SessionRequest {
     pub os_user: String,
+    #[allow(dead_code)]
     pub token: Option<String>,
 }
 
