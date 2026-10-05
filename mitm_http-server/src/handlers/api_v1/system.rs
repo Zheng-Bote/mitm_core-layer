@@ -75,7 +75,7 @@ pub async fn handle_dashboard_stats(
         db_info.version.clone()
     };
 
-    let dlq = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(created_at) FROM dead_letter_queue")
+    let dlq = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(failed_at) FROM dead_letter_queue")
         .fetch_one(&state.repo.get().unwrap().pool)
         .await
         .unwrap_or((0, None));
@@ -85,22 +85,22 @@ pub async fn handle_dashboard_stats(
         .await
         .unwrap_or((0, None));
 
-    let admin_audit_logs = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(created_at) FROM admin_audit_logs")
+    let admin_audit_logs = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(ts) FROM admin_audit_logs")
         .fetch_one(&state.repo.get().unwrap().pool)
         .await
         .unwrap_or((0, None));
 
-    let system_logs = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(created_at) FROM system_logs")
+    let system_logs = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(ts) FROM system_logs")
         .fetch_one(&state.repo.get().unwrap().pool)
         .await
         .unwrap_or((0, None));
 
-    let job_audit_logs = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(created_at) FROM job_audit_logs")
+    let job_audit_logs = sqlx::query_as::<_, (i64, Option<chrono::DateTime<chrono::Utc>>)>("SELECT COUNT(*), MIN(ts) FROM job_audit_logs")
         .fetch_one(&state.repo.get().unwrap().pool)
         .await
         .unwrap_or((0, None));
 
-    let total_scheduled_jobs = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM jobs")
+    let total_scheduled_jobs = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM scheduled_programs")
         .fetch_one(&state.repo.get().unwrap().pool)
         .await
         .unwrap_or(0);
