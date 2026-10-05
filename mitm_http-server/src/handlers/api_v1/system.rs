@@ -10,6 +10,7 @@ pub fn routes() -> Router<AppState> {
 pub fn protected_routes() -> Router<AppState> {
     Router::new()
         .route("/dashboard", get(handle_dashboard_stats))
+        .route("/backup", get(crate::handlers::admin::handle_backup))
 }
 
 #[derive(serde::Serialize)]
