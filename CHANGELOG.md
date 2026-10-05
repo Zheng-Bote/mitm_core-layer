@@ -5,16 +5,20 @@ All notable changes to the MitM-2 Core Layer project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-10-05
+
+### Added
+- **API**: Added missing endpoints for system operations (`/api/v1/system/backup`, `/api/v1/system/restore`, `/api/v1/system/key-rotation`), user management (`GET /api/v1/users/:id`), and admin logs (`GET /api/v1/logs/admin-audit`).
 
 ### Changed
-- Completely refactored API v1 routes to a RESTful resource-oriented design (`/api/v1/{resource}`).
-- Adjusted Casbin model and seeded policies to support role inheritance (`ADMIN` -> `USER` -> `VIEWER`).
-- Mapped endpoints to appropriate RBAC roles (`VIEWER`, `USER`, `ADMIN`).
+- **API Architecture**: Completely refactored API v1 routes to a RESTful resource-oriented design (`/api/v1/{resource}`).
+- **RBAC**: Adjusted Casbin model and seeded policies to support role inheritance (`ADMIN` -> `USER` -> `VIEWER`), and mapped endpoints to appropriate roles.
+- **Database**: Renamed the default `UPLOADER` role to `USER` in `migrations/setup.sql` and system configuration.
+- **Documentation**: Updated `core-layer/mitm_http-server/docs/api/api_v1.md` to accurately reflect the new v1 API endpoints and backup parameters.
 
-### Changed
-- Moved dashboard stats endpoint from `/api/admin/v1/system/dashboard/stats` to `/api/system/v1/dashboard` and expanded it with advanced counts and oldest timestamps for all audit logs and DLQ.
-- Adjusted RBAC policy to allow `VIEWER` access to the dashboard endpoint.
+### Fixed
+- **SPA Routing**: Fixed the Axum fallback router (`spa_service`) to correctly map `404 Not Found` to `200 OK` when serving the Angular `index.html` on browser refreshes.
+- **Content Negotiation**: Fixed FlatBuffer vs JSON content negotiation by properly falling back to JSON when the `Accept: application/json` header is provided.
 
 ## [1.3.0] - 2026-09-28
 
