@@ -2,8 +2,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use casbin::MgmtApi;
-
 use axum::Router;
 use axum::routing::get;
 use std::sync::Arc;
