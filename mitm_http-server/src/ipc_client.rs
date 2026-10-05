@@ -47,8 +47,13 @@ pub async fn auth_middleware(
     use serde::Serialize;
     
     let path = req.uri().path();
-    // Protect these paths. We also need to allow /api/user/v1 through without auth for creating sessions, but wait, the check is explicitly allowing anything else!
-    if !path.starts_with("/admin") && !path.starts_with("/api/admin/v1") && !path.starts_with("/api/transformation/v1") && !path.starts_with("/api/system/v1/dashboard") {
+    // Allow public API endpoints without auth
+    if path.starts_with("/api/v1/auth/session") || path.starts_with("/api/v1/system/info") || path.starts_with("/api/v1/system/time") {
+        return next.run(req).await;
+    }
+    
+    // Protect these paths.
+    if !path.starts_with("/admin") && !path.starts_with("/api/v1") {
         return next.run(req).await;
     }
 

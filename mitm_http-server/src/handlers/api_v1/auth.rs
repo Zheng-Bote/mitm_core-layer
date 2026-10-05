@@ -158,5 +158,5 @@ pub async fn get_roles(
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/session", post(create_session))
-        .route("/roles", get(get_roles))
+        .route("/me", get(get_roles))
 }
