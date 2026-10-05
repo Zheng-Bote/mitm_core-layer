@@ -178,23 +178,42 @@ g = _, _
 e = some(where (p.eft == allow))
 
 [matchers]
-m = r.sub == p.sub && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.obj == p.obj) && (p.act == \".*\" || r.act == p.act || regexMatch(r.act, p.act))
+m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.obj == p.obj) && (p.act == \".*\" || r.act == p.act || regexMatch(r.act, p.act))
 ";
                                         let m = casbin::DefaultModel::from_str(model_text).await.unwrap();
                                         let a = sqlx_adapter::SqlxAdapter::new_with_pool(repo_cell_for_uds.get().unwrap().pool.clone()).await.unwrap();
                                         let mut enforcer = casbin::Enforcer::new(m, a).await.unwrap();
                                         
                                         // Seed default policies (Task 2)
-                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]) {
-                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]).await;
+                                        let _ = enforcer.add_grouping_policy(vec!["ADMIN".to_string(), "USER".to_string()]).await;
+                                        let _ = enforcer.add_grouping_policy(vec!["USER".to_string(), "VIEWER".to_string()]).await;
+
+                                        if !enforcer.has_policy(vec!["VIEWER".to_string(), "/api/v1/system/dashboard".to_string(), "GET".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["VIEWER".to_string(), "/api/v1/system/dashboard".to_string(), "GET".to_string()]).await;
                                         }
-                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/logs/system".to_string(), ".*".to_string()]) {
-                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/admin/v1/logs/system".to_string(), ".*".to_string()]).await;
-                                        }
-                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]) {
-                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/transformation/v1/*".to_string(), ".*".to_string()]).await;
+                                        if !enforcer.has_policy(vec!["VIEWER".to_string(), "/api/v1/jobs".to_string(), "GET".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["VIEWER".to_string(), "/api/v1/jobs".to_string(), "GET".to_string()]).await;
                                         }
 
+                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/jobs/*".to_string(), "POST".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/jobs/*".to_string(), "POST".to_string()]).await;
+                                        }
+                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/logs/*".to_string(), "GET".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/logs/*".to_string(), "GET".to_string()]).await;
+                                        }
+                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/dlq".to_string(), "GET".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/dlq".to_string(), "GET".to_string()]).await;
+                                        }
+                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/dlq/requeue".to_string(), "POST".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/dlq/requeue".to_string(), "POST".to_string()]).await;
+                                        }
+                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/uploads/*".to_string(), "POST".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/uploads/*".to_string(), "POST".to_string()]).await;
+                                        }
+
+                                        if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/v1/*".to_string(), ".*".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/v1/*".to_string(), ".*".to_string()]).await;
+                                        }
 
                                         let app_state = handlers::AppState { 
                                             repo: repo_cell_for_uds.clone(), 

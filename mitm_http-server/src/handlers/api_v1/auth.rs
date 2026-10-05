@@ -13,6 +13,7 @@ use crate::handlers::AppState;
 #[derive(Deserialize)]
 pub struct SessionRequest {
     pub os_user: String,
+    #[allow(dead_code)]
     pub token: Option<String>,
 }
 
@@ -157,5 +158,5 @@ pub async fn get_roles(
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/session", post(create_session))
-        .route("/roles", get(get_roles))
+        .route("/me", get(get_roles))
 }

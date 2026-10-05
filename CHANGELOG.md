@@ -5,6 +5,17 @@ All notable changes to the MitM-2 Core Layer project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Completely refactored API v1 routes to a RESTful resource-oriented design (`/api/v1/{resource}`).
+- Adjusted Casbin model and seeded policies to support role inheritance (`ADMIN` -> `USER` -> `VIEWER`).
+- Mapped endpoints to appropriate RBAC roles (`VIEWER`, `USER`, `ADMIN`).
+
+### Changed
+- Moved dashboard stats endpoint from `/api/admin/v1/system/dashboard/stats` to `/api/system/v1/dashboard` and expanded it with advanced counts and oldest timestamps for all audit logs and DLQ.
+- Adjusted RBAC policy to allow `VIEWER` access to the dashboard endpoint.
+
 ## [1.3.0] - 2026-09-28
 
 ### Added
