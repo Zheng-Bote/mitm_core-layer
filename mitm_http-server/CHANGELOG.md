@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-05
+
+### Added
+- **API Architecture:** Refactored the entire API from module-based paths (`/api/admin/v1`, `/api/transformation/v1`) to a strict resource-oriented RESTful layout under `/api/v1/*` (e.g., `/api/v1/system`, `/api/v1/jobs`, `/api/v1/logs`, `/api/v1/dlq`, `/api/v1/config`, `/api/v1/iam`, `/api/v1/auth`).
+- **Dashboard Stats:** Expanded the `/api/v1/system/dashboard` endpoint to include nested metrics (count and oldest timestamp) for DLQ, Transformation Errors, System Logs, Audit Logs, Jobs, and Users.
+- **Hierarchical RBAC:** Reconfigured Casbin with the grouping matcher (`g(r.sub, p.sub)`) to support hierarchical role inheritance, allowing `ADMIN` to inherit `USER`, and `USER` to inherit `VIEWER`. Updated the seeded Casbin policies to reflect this hierarchy.
+
+### Changed
+- **Auth Middleware:** Updated the authentication middleware bypass rules to cleanly exclude public endpoints (`/api/v1/auth/session`, `/api/v1/system/info`, `/api/v1/system/time`).
+- **Documentation:** Extensively updated `api_v1.md` to document the new resource-oriented endpoints and their corresponding minimum role requirements.
+
 ## [1.4.0] - 2026-10-03
 
 ### Added
