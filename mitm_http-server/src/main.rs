@@ -185,6 +185,9 @@ m = r.sub == p.sub && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.ob
                                         let mut enforcer = casbin::Enforcer::new(m, a).await.unwrap();
                                         
                                         // Seed default policies (Task 2)
+                                        if !enforcer.has_policy(vec!["VIEWER".to_string(), "/api/system/v1/dashboard".to_string(), "GET".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["VIEWER".to_string(), "/api/system/v1/dashboard".to_string(), "GET".to_string()]).await;
+                                        }
                                         if !enforcer.has_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]) {
                                             let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/admin/v1/*".to_string(), ".*".to_string()]).await;
                                         }

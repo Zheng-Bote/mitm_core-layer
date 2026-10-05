@@ -48,7 +48,7 @@ pub async fn auth_middleware(
     
     let path = req.uri().path();
     // Protect these paths. We also need to allow /api/user/v1 through without auth for creating sessions, but wait, the check is explicitly allowing anything else!
-    if !path.starts_with("/admin") && !path.starts_with("/api/admin/v1") && !path.starts_with("/api/transformation/v1") {
+    if !path.starts_with("/admin") && !path.starts_with("/api/admin/v1") && !path.starts_with("/api/transformation/v1") && !path.starts_with("/api/system/v1/dashboard") {
         return next.run(req).await;
     }
 

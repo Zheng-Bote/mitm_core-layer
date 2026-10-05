@@ -11,9 +11,11 @@ pub fn routes(state: AppState) -> Router<AppState> {
     let authz_layer = middleware::from_fn_with_state(state.clone(), crate::handlers::authz_middleware);
     
     let admin_routes = admin::routes().layer(authz_layer.clone());
-    let transformation_routes = transformation::routes().layer(authz_layer);
+    let transformation_routes = transformation::routes().layer(authz_layer.clone());
     let public_routes = public::routes();
-    let system_routes = system::routes();
+    let system_routes = Router::new()
+        .merge(system::routes())
+        .merge(system::protected_routes().layer(authz_layer));
     let user_routes = user::routes(); // Unprotected (auth happens inside handlers)
 
     Router::new()
