@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-10-06
+
+### Fixed
+- **Database**: Added a retry loop for PostgreSQL connection on startup to prevent `PoolTimedOut` crashes in environments with slow database provisioning (like AWS ECS + RDS). Respects `MITM_DB_CONNECT_DELAY` configuration.
+- **Dependencies**: Downgraded `sqlx` to `=0.7.3` due to a known regression in `0.7.4` causing `PoolTimedOut` errors in AWS environments.
+
 ## [1.1.0] - 2026-09-27
 
 ### Added

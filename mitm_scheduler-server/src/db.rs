@@ -23,10 +23,25 @@ impl Repository {
             if config.db.sslmode { "require" } else { "disable" }
         );
 
-        let pool = PgPoolOptions::new()
-            .max_connections(config.db.max_conns)
-            .connect(&db_url)
-            .await?;
+        let mut attempts = 0;
+        let pool = loop {
+            let pool_opts = PgPoolOptions::new()
+                .max_connections(config.db.max_conns)
+                .acquire_timeout(std::time::Duration::from_secs(10));
+                
+            match pool_opts.connect(&db_url).await {
+                Ok(p) => break p,
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= 120 { // Up to 10 minutes wait
+                        log::error!("Scheduler-Server DB connection failed after {} attempts: {}", attempts, e);
+                        return Err(Box::new(e) as Box<dyn Error + Send + Sync>);
+                    }
+                    log::warn!("Scheduler-Server DB connection failed: {}. Retrying in {}s...", e, config.db.db_connect_delay);
+                    tokio::time::sleep(std::time::Duration::from_secs(config.db.db_connect_delay)).await;
+                }
+            }
+        };
 
         Ok(Self { pool })
     }
