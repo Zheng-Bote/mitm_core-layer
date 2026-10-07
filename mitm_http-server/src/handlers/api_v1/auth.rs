@@ -140,16 +140,17 @@ pub async fn get_roles(
         .await;
 
         // In a real application, we would check user roles against DB (`user_roles_encrypted`).
-        // For MVP, we return a hardcoded/mock array based on the username for testing.
-        let username = session.0.to_lowercase();
+        // For MVP, we fetch from Casbin.
+        let mut roles = vec![];
         
-        let roles = if username == "zb_bamboo" || username == "admin" {
-            vec!["ADMIN".to_string()]
-        } else if username == "uuser" {
-            vec!["USER".to_string()]
-        } else if username == "vuser" {
-            vec!["VIEWER".to_string()]
-        } else {
+        {
+            use casbin::RbacApi;
+            // Write lock may be required for some RbacApi methods in older casbin-rs, but read is usually enough for get_roles.
+            let enforcer = state.enforcer.write().await;
+            roles = enforcer.get_implicit_roles_for_user(&session.0, None);
+        }
+
+        if roles.is_empty() {
             // Fallback: check admin_users table as before
             let is_admin = sqlx::query_as::<_, (i32,)>(
                 "SELECT id FROM admin_users WHERE username = $1 AND is_active = true"
@@ -161,11 +162,11 @@ pub async fn get_roles(
             .is_some();
 
             if is_admin {
-                vec!["ADMIN".to_string()]
+                roles = vec!["ADMIN".to_string()];
             } else {
-                vec!["VIEWER".to_string()]
+                roles = vec!["VIEWER".to_string()];
             }
-        };
+        }
 
         Ok(Json(RolesResponse { roles, os_user: session.0 }))
 
