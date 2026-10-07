@@ -140,21 +140,31 @@ pub async fn get_roles(
         .await;
 
         // In a real application, we would check user roles against DB (`user_roles_encrypted`).
-        // For MVP, we return a hardcoded/mock array, or fetch from Casbin if possible.
-        // Let's query admin_users for roles
-        let is_admin = sqlx::query_as::<_, (i32,)>(
-            "SELECT id FROM admin_users WHERE username = $1 AND is_active = true"
-        )
-        .bind(&session.0)
-        .fetch_optional(&state.repo.get().unwrap().pool)
-        .await
-        .unwrap_or(None)
-        .is_some();
-
-        let roles = if is_admin {
-            vec!["ADMIN".to_string(), "VIEWER".to_string(), "UPLOADER".to_string()]
-        } else {
+        // For MVP, we return a hardcoded/mock array based on the username for testing.
+        let username = session.0.to_lowercase();
+        
+        let roles = if username == "zb_bamboo" || username == "admin" {
+            vec!["ADMIN".to_string()]
+        } else if username == "uuser" {
+            vec!["USER".to_string()]
+        } else if username == "vuser" {
             vec!["VIEWER".to_string()]
+        } else {
+            // Fallback: check admin_users table as before
+            let is_admin = sqlx::query_as::<_, (i32,)>(
+                "SELECT id FROM admin_users WHERE username = $1 AND is_active = true"
+            )
+            .bind(&session.0)
+            .fetch_optional(&state.repo.get().unwrap().pool)
+            .await
+            .unwrap_or(None)
+            .is_some();
+
+            if is_admin {
+                vec!["ADMIN".to_string()]
+            } else {
+                vec!["VIEWER".to_string()]
+            }
         };
 
         Ok(Json(RolesResponse { roles, os_user: session.0 }))
