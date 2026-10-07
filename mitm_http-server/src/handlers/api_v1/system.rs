@@ -1,4 +1,5 @@
 use axum::{Router, routing::get};
+use axum::response::IntoResponse;
 use crate::handlers::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -14,6 +15,45 @@ pub fn protected_routes() -> Router<AppState> {
         .route("/restore", axum::routing::post(crate::handlers::admin::handle_restore))
         .route("/key-rotation", axum::routing::post(crate::handlers::admin::handle_key_rotation))
         .route("/storage-keys", get(crate::handlers::admin::handle_get_storage_keys))
+        .route("/action", axum::routing::post(handle_action))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ActionPayload {
+    pub action: String,
+    pub details: Option<serde_json::Value>,
+}
+
+pub async fn handle_action(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::Json(payload): axum::Json<ActionPayload>,
+) -> impl axum::response::IntoResponse {
+    let details_json = match &payload.details {
+        Some(d) => serde_json::to_value(d).unwrap_or(serde_json::json!({})),
+        None => serde_json::json!({}),
+    };
+
+    let query = "INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)";
+    match sqlx::query(query)
+        .bind(&auth.username)
+        .bind(&payload.action)
+        .bind(details_json)
+        .execute(&state.repo.get().unwrap().pool)
+        .await
+    {
+        Ok(_) => axum::http::StatusCode::OK.into_response(),
+        Err(e) => {
+            let err = crate::handlers::ErrorResponse {
+                errors: vec![crate::handlers::JsonApiError {
+                    status: "500".into(),
+                    title: "Database Error".into(),
+                    detail: Some(e.to_string()),
+                }],
+            };
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(err)).into_response()
+        }
+    }
 }
 
 #[derive(serde::Serialize)]

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-07
+
+### Added
+- **Auth & Audit**: Implemented Admin Auth Audit logging (`USER_LOGIN` events) into the database on successful authentication.
+- **Session Context**: The `/api/v1/auth/me` endpoint now returns the `os_user` field in the `RolesResponse`, allowing client UIs to display the logged-in user dynamically.
+
+### Changed
+- **API Clean-up**: Removed legacy `v0` API endpoints (`/admin/*`) completely in favor of the new `/api/v1/*` REST structure.
+- **API V1 Extensions**: Restored previously missing endpoints into `/api/v1/*` (e.g., file upload, system actions, topic dependencies deletion) to support C++ client migration.
+- **RBAC**: Enforced explicit Casbin policies on `/api/v1/jobs` endpoints to restrict execution/stopping strictly to `USER` or `ADMIN`, while `VIEWER` is restricted to read-only access.
+
 ## [1.5.1] - 2026-10-06
 
 ### Fixed

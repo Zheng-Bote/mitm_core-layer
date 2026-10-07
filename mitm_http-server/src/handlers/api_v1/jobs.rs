@@ -9,6 +9,7 @@ pub fn routes() -> Router<AppState> {
         .route("/:name", delete(handle_delete_job_v1))
         .route("/:name/stop", post(handle_stop_job_v1))
         .route("/:name/execute", post(handle_execute_job_v1))
+        .route("/upload/source_file", post(crate::handlers::jobs::handle_upload_file))
 }
 
 async fn handle_delete_job_v1(State(state): State<AppState>, Path(name): Path<String>) -> impl IntoResponse {

@@ -151,15 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let _ = repo_cell_for_uds.get().unwrap().log_system("INFO", "http-server", &success_msg).await;
                                         
                                         // Build true app state with the correct config
-                                        let template_dir = std::path::Path::new(&parsed_cfg.mitm_dir).join("html").join("templates");
-                                        let tera = match tera::Tera::new(&format!("{}/**/*", template_dir.to_string_lossy())) {
-                                            Ok(t) => t,
-                                            Err(e) => {
-                                                log::error!("Failed to parse templates: {}", e);
-                                                // Create a dummy Tera if it fails so it doesn't crash the server hard, but log the error
-                                                tera::Tera::default()
-                                            }
-                                        };
+
                                         
 
 
@@ -195,9 +187,15 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                             let _ = enforcer.add_policy(vec!["VIEWER".to_string(), "/api/v1/jobs".to_string(), "GET".to_string()]).await;
                                         }
 
-                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/jobs/*".to_string(), "POST".to_string()]) {
-                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/jobs/*".to_string(), "POST".to_string()]).await;
+                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/jobs/*/stop".to_string(), "POST".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/jobs/*/stop".to_string(), "POST".to_string()]).await;
                                         }
+
+                                        if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/jobs/*/execute".to_string(), "POST".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/jobs/*/execute".to_string(), "POST".to_string()]).await;
+                                        }
+
+
                                         if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/logs/*".to_string(), "GET".to_string()]) {
                                             let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/logs/*".to_string(), "GET".to_string()]).await;
                                         }
@@ -218,7 +216,6 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                         let app_state = handlers::AppState { 
                                             repo: repo_cell_for_uds.clone(), 
                                             config: std::sync::Arc::new(parsed_cfg.clone()),
-                                            tera: std::sync::Arc::new(tera),
                                             enforcer: std::sync::Arc::new(tokio::sync::RwLock::new(enforcer)),
                                         };
 

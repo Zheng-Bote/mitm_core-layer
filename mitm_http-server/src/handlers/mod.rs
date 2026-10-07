@@ -20,7 +20,6 @@ pub mod transformation;
 pub struct AppState {
     pub repo: Arc<tokio::sync::OnceCell<crate::db::Repository>>,
     pub config: Arc<mitm_common::config::DBConfig>,
-    pub tera: Arc<tera::Tera>,
     pub enforcer: Arc<tokio::sync::RwLock<casbin::Enforcer>>,
 }
 
@@ -114,42 +113,11 @@ pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
         }));
 
     Router::new()
-        .route("/template/:name", get(handle_template))
-        .route("/info", get(handle_info))
         .route("/health", get(handle_health))
-        .route("/time", get(handle_time))
-        .nest("/admin", admin::routes())
-        .nest("/admin", jobs::routes())
-        .nest("/admin/rbac", rbac::routes())
-        .nest("/admin/logs", logs::routes())
         .nest("/api", api_v1::routes(state.clone()))
-        .nest("/admin/dlq", dlq::routes())
-        .route("/admin/dlq_bin", get(dlq::handle_dlq_bin))
-        .nest("/admin/transformation", transformation::routes())
         .fallback_service(spa_router)
 }
 
-async fn handle_template(
-    State(state): State<AppState>,
-    axum::extract::Path(name): axum::extract::Path<String>,
-) -> axum::response::Response {
-    use axum::response::IntoResponse;
-    let mut context = tera::Context::new();
-    context.insert("version", env!("CARGO_PKG_VERSION"));
-    
-    let template_name = format!("{}.html", name);
-    
-    match state.tera.render(&template_name, &context) {
-        Ok(html) => axum::response::Html(html).into_response(),
-        Err(e) => {
-            log::error!("Template render error for {}: {}", template_name, e);
-            axum::response::IntoResponse::into_response((
-                axum::http::StatusCode::NOT_FOUND,
-                "Template not found",
-            ))
-        }
-    }
-}
 
 
 

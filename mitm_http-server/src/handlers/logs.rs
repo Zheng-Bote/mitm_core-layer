@@ -6,8 +6,7 @@ use axum::{
     extract::{State, Query},
     http::{StatusCode, header},
     response::IntoResponse,
-    routing::get,
-    Json, Router,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::QueryBuilder;
@@ -16,15 +15,7 @@ use crate::handlers::AppState;
 use crate::schematas;
 use flatbuffers::FlatBufferBuilder;
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/system", get(handle_system_logs))
-        .route("/system_bin", get(handle_system_logs_bin))
-        .route("/job-audit", get(handle_job_audit_logs))
-        .route("/job-audit_bin", get(handle_job_audit_logs_bin))
-        .route("/admin-audit", get(handle_admin_audit_logs))
-        .route("/admin-audit_bin", get(handle_admin_audit_logs_bin))
-}
+
 
 #[derive(Deserialize)]
 pub struct LogQuery {
