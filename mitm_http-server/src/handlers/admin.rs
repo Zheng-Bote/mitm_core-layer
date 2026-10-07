@@ -234,7 +234,7 @@ pub async fn handle_key_rotation(
     // `wrapped_key BYTEA NOT NULL`
     // Let's store nonce + ciphertext in wrapped_key for simplicity, or just
     // ciphertext if the frontend combined them? No, frontend sent them separate.
-    // The previous mocked code just did nothing.
+    // The previous code just did nothing.
     // Let's store nonce + ciphertext in wrapped_key.
     let mut wrapped_key = Vec::new();
     wrapped_key.extend_from_slice(&nonce_bytes);

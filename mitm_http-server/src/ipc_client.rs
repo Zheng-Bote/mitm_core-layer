@@ -132,18 +132,30 @@ pub async fn auth_middleware(
             auth_resp.success = true;
             auth_resp.username = session.0.clone();
             
-            // Query DB for actual roles, for now we mock based on admin_users check
-            let is_admin = sqlx::query_as::<_, (i32,)>(
-                "SELECT id FROM admin_users WHERE username = $1 AND is_active = true"
-            )
-            .bind(&session.0)
-            .fetch_optional(pool).await.unwrap_or(None).is_some();
-
-            if is_admin {
-                auth_resp.roles = vec!["ADMIN".to_string(), "VIEWER".to_string(), "UPLOADER".to_string()];
-            } else {
-                auth_resp.roles = vec!["VIEWER".to_string()];
+            // Fetch roles from Casbin
+            let mut roles = vec![];
+            {
+                use casbin::RbacApi;
+                let enforcer = state.enforcer.read().await;
+                roles = enforcer.get_implicit_roles_for_user(&session.0, None);
             }
+
+            if roles.is_empty() {
+                // Fallback check
+                let is_admin = sqlx::query_as::<_, (i32,)>(
+                    "SELECT id FROM admin_users WHERE username = $1 AND is_active = true"
+                )
+                .bind(&session.0)
+                .fetch_optional(pool).await.unwrap_or(None).is_some();
+
+                if is_admin {
+                    roles = vec!["ADMIN".to_string()];
+                } else {
+                    roles = vec!["VIEWER".to_string()];
+                }
+            }
+            
+            auth_resp.roles = roles;
 
         } else {
             return make_error("Invalid session token.");
