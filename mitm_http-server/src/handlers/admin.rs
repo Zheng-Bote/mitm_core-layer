@@ -6,8 +6,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
+    Json,
 };
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -15,57 +14,11 @@ use std::collections::HashMap;
 
 use crate::handlers::{AppState, ErrorResponse, JsonApiError};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/action", post(handle_action))
-        .route("/backup", get(handle_backup))
-        .route("/restore", post(handle_restore))
-        .route("/key-rotation", post(handle_key_rotation))
-        .route("/storage-keys", get(handle_get_storage_keys))
 
-        .route("/credentials", get(handle_credentials).post(handle_post_credentials))
-        .route("/delivery_targets", get(handle_delivery_targets).post(handle_post_delivery_targets))
-}
 
-#[derive(Deserialize)]
-pub struct ActionPayload {
-    pub action: String,
-    pub details: Option<serde_json::Value>,
-}
 
-async fn handle_action(
-    State(state): State<AppState>,
-    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
-    Json(payload): Json<ActionPayload>,
-) -> impl IntoResponse {
-    let username = auth.username;
 
-    let details_json = match &payload.details {
-        Some(d) => serde_json::to_value(d).unwrap_or(serde_json::json!({})),
-        None => serde_json::json!({}),
-    };
 
-    let query = "INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)";
-    match sqlx::query(query)
-        .bind(username)
-        .bind(&payload.action)
-        .bind(details_json)
-        .execute(&state.repo.get().unwrap().pool)
-        .await
-    {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database Error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct BackupPayload {

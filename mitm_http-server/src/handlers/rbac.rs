@@ -6,8 +6,7 @@ use axum::{
     extract::{State, Query},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post, delete},
-    Json, Router,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,16 +15,7 @@ use mitm_common::crypto;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rand::{rngs::OsRng, RngCore};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/roles", get(handle_get_roles))
-        .route("/users", get(handle_get_users))
-        .route("/user/create", post(handle_create_user))
-        .route("/user/delete", delete(handle_delete_user))
-        .route("/assign", post(handle_assign_roles))
-        .route("/user_roles", get(handle_get_user_roles))
-        .route("/os_user_roles", get(handle_get_os_user_roles))
-}
+
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Role {
@@ -250,73 +240,6 @@ pub async fn handle_get_user_roles(
     (StatusCode::OK, Json(roles)).into_response()
 }
 
-#[derive(Deserialize)]
-pub struct OsUserQuery {
-    pub os_user: String,
-}
 
-pub async fn handle_get_os_user_roles(
-    State(state): State<AppState>,
-    Query(query): Query<OsUserQuery>,
-) -> impl IntoResponse {
-    for admin in &state.config.admins {
-        if admin.username == query.os_user {
-            return (StatusCode::OK, Json(vec!["ADMIN".to_string()])).into_response();
-        }
-    }
 
-    let record: Option<(i32,)> = match sqlx::query_as("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
-        .bind(&query.os_user)
-        .fetch_optional(&state.repo.get().unwrap().pool)
-        .await {
-            Ok(r) => r,
-            Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
-        };
 
-    let user_id = match record {
-        Some(r) => r.0,
-        None => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
-    };
-
-    let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = match sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.repo.get().unwrap().pool)
-        .await {
-            Ok(r) => r,
-            Err(_) => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
-        };
-
-    let (wrapped_dek, nonce, encrypted_roles) = match row {
-        Some(r) => r,
-        None => return (StatusCode::OK, Json(Vec::<String>::new())).into_response(),
-    };
-
-    let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
-    let socket_path = socket_dir.join("mitm_scheduler.sock");
-
-    let plaintext = match crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::OK, axum::Json(Vec::<String>::new())).into_response(),
-    };
-
-    let role_ids: Vec<i32> = serde_json::from_slice(&plaintext).unwrap_or_default();
-
-    if role_ids.is_empty() {
-        return (StatusCode::OK, Json(Vec::<String>::new())).into_response();
-    }
-
-    let mut role_names = Vec::new();
-    if let Ok(rows) = sqlx::query("SELECT name FROM roles WHERE id = ANY($1)")
-        .bind(&role_ids)
-        .fetch_all(&state.repo.get().unwrap().pool)
-        .await {
-            for row in rows {
-                use sqlx::Row;
-                if let Ok(name) = row.try_get::<String, _>(0) {
-                    role_names.push(name);
-                }
-            }
-        }
-
-    (StatusCode::OK, Json(role_names)).into_response()
-}

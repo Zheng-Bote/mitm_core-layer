@@ -6,26 +6,14 @@ use axum::{
     extract::{State, Query},
     http::{StatusCode, header},
     response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use crate::handlers::AppState;
 use crate::schematas;
 use flatbuffers::FlatBufferBuilder;
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/sources", get(handle_sources))
-        .route("/targets", get(handle_targets))
-        .route("/rules", get(handle_rules))
-        .route("/transformations", get(handle_transformations))
-        .route("/validations", get(handle_validations))
-        .route("/errors", get(handle_errors))
-        .route("/errors_bin", get(handle_errors_bin))
-        .route("/topic-dependencies", get(handle_topic_dependencies))
-        .route("/auto-map", post(handle_auto_map))
-}
+
 
 #[derive(Deserialize)]
 pub struct PaginationQuery {
@@ -178,6 +166,21 @@ pub async fn handle_topic_dependencies(State(state): State<AppState>) -> impl In
     let sql = "SELECT topic, required_sources FROM topic_dependencies ORDER BY topic";
     match sqlx::query_as::<_, TopicDependency>(sql).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    }
+}
+
+pub async fn handle_delete_topic_dependencies(
+    State(state): State<AppState>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let topic = match query.get("topic") {
+        Some(t) => t,
+        None => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let sql = "DELETE FROM topic_dependencies WHERE topic = $1";
+    match sqlx::query(sql).bind(topic).execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => StatusCode::OK.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }

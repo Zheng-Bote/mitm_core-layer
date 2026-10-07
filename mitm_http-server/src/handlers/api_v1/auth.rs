@@ -25,6 +25,7 @@ pub struct SessionResponse {
 #[derive(Serialize)]
 pub struct RolesResponse {
     pub roles: Vec<String>,
+    pub os_user: String,
 }
 
 // Handler for POST /api/user/v1/session
@@ -60,6 +61,14 @@ pub async fn create_session(
 
     match result {
         Ok(_) => {
+            if let Some(repo) = state.repo.get() {
+                let details = serde_json::json!({
+                    "action": "login",
+                    "status": "success"
+                });
+                let _ = repo.log_admin(&payload.os_user, "USER_LOGIN", details).await;
+            }
+
             let response = SessionResponse {
                 session_token: token_uuid.to_string(),
             };
@@ -148,7 +157,7 @@ pub async fn get_roles(
             vec!["VIEWER".to_string()]
         };
 
-        Ok(Json(RolesResponse { roles }))
+        Ok(Json(RolesResponse { roles, os_user: session.0 }))
 
     } else {
         Err((StatusCode::UNAUTHORIZED, "Invalid session token".to_string()))

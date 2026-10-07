@@ -3,31 +3,21 @@
  */
 
 use axum::{
-    extract::{State, Query, Multipart},
+    extract::{State, Query},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post, delete},
-    Json, Router,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 
 use tokio::net::UnixStream;
 use tokio::io::AsyncWriteExt;
-use std::path::Path;
 use mitm_common::ipc::SchedulerRequest;
 use std::str::FromStr;
 
 use crate::handlers::{AppState, ErrorResponse, JsonApiError};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/jobs", get(handle_get_jobs))
-        .route("/update-jobs", post(handle_update_jobs))
-        .route("/delete-job", delete(handle_delete_job))
-        .route("/stop-job", post(handle_stop_job))
-        .route("/execute-job", post(handle_execute_job))
-        .route("/upload/source_file", post(handle_upload_file))
-}
+
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct ScheduledProgram {
@@ -247,10 +237,12 @@ pub async fn handle_execute_job(
     }
 }
 
+
+
 pub async fn handle_upload_file(
-    State(state): State<AppState>,
-    mut multipart: Multipart,
-) -> impl IntoResponse {
+    axum::extract::State(state): axum::extract::State<crate::handlers::AppState>,
+    mut multipart: axum::extract::Multipart,
+) -> impl axum::response::IntoResponse {
     let _ = std::fs::create_dir_all(&state.config.upload_dir);
     
     let mut file_data: Option<Vec<u8>> = None;
@@ -273,10 +265,10 @@ pub async fn handle_upload_file(
 
     if let Some(data) = file_data {
         let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let dest_path = Path::new(&state.config.upload_dir).join(format!("{}_{}", timestamp, file_name));
+        let dest_path = std::path::Path::new(&state.config.upload_dir).join(format!("{}_{}", timestamp, file_name));
         
         if let Err(e) = std::fs::write(&dest_path, &data) {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": format!("Failed to save file: {}", e) }))).into_response();
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({ "error": format!("Failed to save file: {}", e) }))).into_response();
         }
         
         // Trigger collector
@@ -293,8 +285,8 @@ pub async fn handle_upload_file(
         
         let _ = send_scheduler_ipc(req, &state.config.socket_dir).await;
 
-        return (StatusCode::OK, Json(serde_json::json!({ "message": "File uploaded" }))).into_response();
+        return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({ "message": "File uploaded" }))).into_response();
     }
 
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "No file field found" }))).into_response()
+    (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({ "error": "No file field found" }))).into_response()
 }

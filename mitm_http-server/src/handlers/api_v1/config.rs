@@ -1,4 +1,4 @@
-use axum::{Router, routing::{get, post, put}};
+use axum::{Router, routing::{get, post, put, delete}};
 use crate::handlers::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -16,6 +16,7 @@ pub fn routes() -> Router<AppState> {
         .route("/transformations", get(crate::handlers::transformation::handle_transformations))
         .route("/transformations/validations", get(crate::handlers::transformation::handle_validations))
         .route("/transformations/topic-dependencies", get(crate::handlers::transformation::handle_topic_dependencies))
+        .route("/transformations/topic-dependencies", delete(crate::handlers::transformation::handle_delete_topic_dependencies))
         .route("/transformations/auto-map", post(crate::handlers::transformation::handle_auto_map))
 }
 

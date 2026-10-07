@@ -7,19 +7,14 @@ use axum::{
     extract::{State, Query},
     http::{StatusCode, header},
     response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use crate::handlers::{AppState, ErrorResponse, JsonApiError};
 use flatbuffers::FlatBufferBuilder;
 use crate::schematas;
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/", get(handle_dlq))
-        .route("/requeue", post(handle_requeue))
-}
+
 
 #[derive(Deserialize)]
 pub struct PaginationQuery {
