@@ -132,12 +132,34 @@ pub async fn auth_middleware(
             auth_resp.success = true;
             auth_resp.username = session.0.clone();
             
-            // Fetch roles from Casbin
+            // Fetch roles from real DB (user_roles_encrypted)
             let mut roles = vec![];
-            {
-                use casbin::RbacApi;
-                let enforcer = state.enforcer.read().await;
-                roles = enforcer.get_implicit_roles_for_user(&session.0, None);
+            let user_id_opt: Option<i32> = sqlx::query_scalar("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
+                .bind(&session.0)
+                .fetch_optional(pool).await.unwrap_or(None);
+
+            if let Some(user_id) = user_id_opt {
+                let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
+                    .bind(user_id)
+                    .fetch_optional(pool).await.unwrap_or(None);
+
+                if let Some((wrapped_dek, nonce, encrypted_roles)) = row {
+                    let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
+                    let socket_path = socket_dir.join("mitm_scheduler.sock");
+
+                    if let Ok(plaintext) = crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
+                        if let Ok(role_ids) = serde_json::from_slice::<Vec<i32>>(&plaintext) {
+                            for rid in role_ids {
+                                if let Ok(Some(name)) = sqlx::query_scalar::<_, String>("SELECT name FROM roles WHERE id = $1")
+                                    .bind(rid)
+                                    .fetch_optional(pool).await 
+                                {
+                                    roles.push(name);
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             if roles.is_empty() {

@@ -139,32 +139,37 @@ pub async fn get_roles(
         .execute(&state.repo.get().unwrap().pool)
         .await;
 
-        // In a real application, we would check user roles against DB (`user_roles_encrypted`).
-        // For MVP, we fetch from Casbin.
+        let pool = &state.repo.get().unwrap().pool;
         let mut roles = vec![];
-        
-        {
-            use casbin::RbacApi;
-            // Write lock may be required for some RbacApi methods in older casbin-rs, but read is usually enough for get_roles.
-            let enforcer = state.enforcer.write().await;
-            roles = enforcer.get_implicit_roles_for_user(&session.0, None);
-        }
 
-        if roles.is_empty() {
-            // Fallback: check admin_users table as before
-            let is_admin = sqlx::query_as::<_, (i32,)>(
-                "SELECT id FROM admin_users WHERE username = $1 AND is_active = true"
-            )
+        // Fetch user ID for the os_user
+        if let Ok(Some(user_id)) = sqlx::query_scalar::<_, i32>("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
             .bind(&session.0)
-            .fetch_optional(&state.repo.get().unwrap().pool)
-            .await
-            .unwrap_or(None)
-            .is_some();
+            .fetch_optional(pool).await 
+        {
+            // Fetch encrypted roles
+            let row = sqlx::query_as::<_, (Vec<u8>, Vec<u8>, Vec<u8>)>(
+                "SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1"
+            )
+            .bind(user_id)
+            .fetch_optional(pool).await.unwrap_or(None);
 
-            if is_admin {
-                roles = vec!["ADMIN".to_string()];
-            } else {
-                roles = vec!["VIEWER".to_string()];
+            if let Some((wrapped_dek, nonce, encrypted_roles)) = row {
+                let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
+                let socket_path = socket_dir.join("mitm_scheduler.sock");
+
+                if let Ok(plaintext) = crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
+                    if let Ok(role_ids) = serde_json::from_slice::<Vec<i32>>(&plaintext) {
+                        for rid in role_ids {
+                            if let Ok(Some(name)) = sqlx::query_scalar::<_, String>("SELECT name FROM roles WHERE id = $1")
+                                .bind(rid)
+                                .fetch_optional(pool).await 
+                            {
+                                roles.push(name);
+                            }
+                        }
+                    }
+                }
             }
         }
 
