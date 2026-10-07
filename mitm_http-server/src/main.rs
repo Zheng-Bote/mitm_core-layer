@@ -195,7 +195,9 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                             let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/jobs/*/execute".to_string(), "POST".to_string()]).await;
                                         }
 
-
+                                        if !enforcer.has_policy(vec!["VIEWER".to_string(), "/api/v1/logs/audit".to_string(), "GET".to_string()]) {
+                                            let _ = enforcer.add_policy(vec!["VIEWER".to_string(), "/api/v1/logs/audit".to_string(), "GET".to_string()]).await;
+                                        }
                                         if !enforcer.has_policy(vec!["USER".to_string(), "/api/v1/logs/*".to_string(), "GET".to_string()]) {
                                             let _ = enforcer.add_policy(vec!["USER".to_string(), "/api/v1/logs/*".to_string(), "GET".to_string()]).await;
                                         }
