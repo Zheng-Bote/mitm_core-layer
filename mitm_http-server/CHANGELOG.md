@@ -5,8 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] - 2026-10-07
+## [1.6.1] - 2026-10-08
 
+### Added
+- **API V1 Extensions**: Added missing `POST` (Create/Update) and `DELETE` endpoints for `/api/v1/config/transformations`, `/api/v1/config/transformations/rules`, and `/api/v1/config/transformations/validations` to allow the Admin UI to persist configuration data.
+
+## [1.6.0] - 2026-10-07
 ### Added
 - **Auth & Audit**: Implemented Admin Auth Audit logging (`USER_LOGIN` events) into the database on successful authentication.
 - **Session Context**: The `/api/v1/auth/me` endpoint now returns the `os_user` field in the `RolesResponse`, allowing client UIs to display the logged-in user dynamically.

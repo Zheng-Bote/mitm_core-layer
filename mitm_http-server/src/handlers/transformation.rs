@@ -257,3 +257,182 @@ pub async fn handle_auto_map(
 
     (StatusCode::OK, Json(serde_json::json!({ "created": created }))).into_response()
 }
+
+
+#[derive(Deserialize)]
+pub struct TransformationPayload {
+    pub id: Option<uuid::Uuid>,
+    pub name: String,
+    pub description: Option<String>,
+    pub parameters: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+pub struct ValidationPayload {
+    pub id: Option<uuid::Uuid>,
+    pub name: String,
+    pub description: Option<String>,
+    pub parameters: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+pub struct RulePayload {
+    pub id: Option<uuid::Uuid>,
+    pub source_id: uuid::Uuid,
+    pub target_field_id: uuid::Uuid,
+    pub source_field: String,
+    pub priority: i32,
+    pub transformation_chain: Option<serde_json::Value>,
+    pub validation_chain: Option<serde_json::Value>,
+}
+
+pub async fn handle_post_transformations(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    Json(payload): Json<TransformationPayload>,
+) -> impl IntoResponse {
+    let id = payload.id.unwrap_or_else(uuid::Uuid::new_v4);
+    let params = payload.parameters.unwrap_or_else(|| serde_json::json!({}));
+    let sql = r#"
+        INSERT INTO mapping_transformation (id, name, description, parameters, version)
+        VALUES ($1, $2, $3, $4, 1)
+        ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            parameters = EXCLUDED.parameters,
+            version = mapping_transformation.version + 1
+    "#;
+    match sqlx::query(sql)
+        .bind(id)
+        .bind(&payload.name)
+        .bind(&payload.description)
+        .bind(&params)
+        .execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("UPSERT_TRANSFORMATION").bind(format!("id: {}, name: {}", id, payload.name))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
+
+pub async fn handle_delete_transformations(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM mapping_transformation WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("DELETE_TRANSFORMATION").bind(format!("id: {}", id))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
+
+pub async fn handle_post_validations(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    Json(payload): Json<ValidationPayload>,
+) -> impl IntoResponse {
+    let id = payload.id.unwrap_or_else(uuid::Uuid::new_v4);
+    let params = payload.parameters.unwrap_or_else(|| serde_json::json!({}));
+    let sql = r#"
+        INSERT INTO mapping_validation (id, name, description, parameters, version)
+        VALUES ($1, $2, $3, $4, 1)
+        ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            parameters = EXCLUDED.parameters,
+            version = mapping_validation.version + 1
+    "#;
+    match sqlx::query(sql)
+        .bind(id)
+        .bind(&payload.name)
+        .bind(&payload.description)
+        .bind(&params)
+        .execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("UPSERT_VALIDATION").bind(format!("id: {}, name: {}", id, payload.name))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
+
+pub async fn handle_delete_validations(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM mapping_validation WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("DELETE_VALIDATION").bind(format!("id: {}", id))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
+
+pub async fn handle_post_rules(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    Json(payload): Json<RulePayload>,
+) -> impl IntoResponse {
+    let id = payload.id.unwrap_or_else(uuid::Uuid::new_v4);
+    let t_chain = payload.transformation_chain.unwrap_or_else(|| serde_json::json!([]));
+    let v_chain = payload.validation_chain.unwrap_or_else(|| serde_json::json!([]));
+    let sql = r#"
+        INSERT INTO mapping_rule (id, source_id, target_field_id, source_field, priority, transformation_chain, validation_chain, version)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
+        ON CONFLICT (id) DO UPDATE SET
+            source_id = EXCLUDED.source_id,
+            target_field_id = EXCLUDED.target_field_id,
+            source_field = EXCLUDED.source_field,
+            priority = EXCLUDED.priority,
+            transformation_chain = EXCLUDED.transformation_chain,
+            validation_chain = EXCLUDED.validation_chain,
+            version = mapping_rule.version + 1
+    "#;
+    match sqlx::query(sql)
+        .bind(id)
+        .bind(payload.source_id)
+        .bind(payload.target_field_id)
+        .bind(&payload.source_field)
+        .bind(payload.priority)
+        .bind(&t_chain)
+        .bind(&v_chain)
+        .execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("UPSERT_RULE").bind(format!("id: {}, source_field: {}", id, payload.source_field))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
+
+pub async fn handle_delete_rules(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM mapping_rule WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("DELETE_RULE").bind(format!("id: {}", id))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
