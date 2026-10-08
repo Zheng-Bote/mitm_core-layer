@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-10-08
+
+### Fixed
+- **Job Orchestrator**: Replaced external `/bin/kill` command with direct `libc::kill` syscalls. This ensures signals (`SIGTERM` and `SIGKILL`) are properly delivered to child processes (like `mitm_delivery_cority`) in distroless or minimal container environments where the `kill` binary is absent.
+
 ## [1.3.1] - 2026-10-06
 
 ### Fixed
