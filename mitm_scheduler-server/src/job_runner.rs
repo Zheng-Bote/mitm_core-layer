@@ -35,7 +35,7 @@ impl JobOrchestrator {
         if let Some(pid) = pid {
             if pid > 0 {
                 log::info!("Sending SIGTERM to job {} (PID: {})", program_id, pid);
-                let _ = Command::new("kill").arg("-15").arg(pid.to_string()).output().await;
+                unsafe { libc::kill(pid as i32, libc::SIGTERM); }
 
                 // Start 5 second SIGKILL timeout task
                 let running_jobs_clone = self.running_jobs.clone();
@@ -47,7 +47,7 @@ impl JobOrchestrator {
                     };
                     if is_still_running {
                         log::warn!("Job {} (PID: {}) did not terminate after 5s, sending SIGKILL", program_id, pid);
-                        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).output().await;
+                        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
                     }
                 });
             } else {
@@ -67,7 +67,7 @@ impl JobOrchestrator {
         for (program_id, pid) in running {
             if pid > 0 {
                 log::info!("Graceful shutdown: Sending SIGTERM to job {} (PID: {})", program_id, pid);
-                let _ = Command::new("kill").arg("-15").arg(pid.to_string()).output().await;
+                unsafe { libc::kill(pid as i32, libc::SIGTERM); }
             }
         }
     }
