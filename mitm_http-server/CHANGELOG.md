@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.6.6] - 2026-10-08
 
 ### Fixed
-- **API V1 Extensions**: Added the missing `POST` handler for `/api/v1/config/transformations/sources` to allow the UI to save transformation sources and resolve the `405 Method Not Allowed` error.
+- **API V1 Extensions**: Added the missing `POST` and `DELETE` handlers for `/api/v1/config/transformations/sources` and `/api/v1/config/transformations/targets` to allow the UI to manage transformation configurations correctly without `405 Method Not Allowed` errors.
 
 ## [1.6.5] - 2026-10-08
 

@@ -12,7 +12,10 @@ pub fn routes() -> Router<AppState> {
         
         .route("/transformations/sources", get(crate::handlers::transformation::handle_sources))
         .route("/transformations/sources", post(crate::handlers::transformation::handle_post_sources))
+        .route("/transformations/sources/:id", delete(crate::handlers::transformation::handle_delete_sources))
         .route("/transformations/targets", get(crate::handlers::transformation::handle_targets))
+        .route("/transformations/targets", post(crate::handlers::transformation::handle_post_targets))
+        .route("/transformations/targets/:id", delete(crate::handlers::transformation::handle_delete_targets))
         .route("/transformations/rules", get(crate::handlers::transformation::handle_rules))
         .route("/transformations/rules", post(crate::handlers::transformation::handle_post_rules))
         .route("/transformations/rules/:id", delete(crate::handlers::transformation::handle_delete_rules))
