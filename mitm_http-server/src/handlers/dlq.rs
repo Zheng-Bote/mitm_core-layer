@@ -115,12 +115,27 @@ pub struct RequeueRequest {
     pub ids: Vec<uuid::Uuid>,
 }
 
+#[derive(Deserialize, Default)]
+pub struct RequeueQuery {
+    pub id: Option<uuid::Uuid>,
+}
+
 pub async fn handle_requeue(
     State(state): State<AppState>,
-    Json(payload): Json<RequeueRequest>,
+    Query(query): Query<RequeueQuery>,
+    payload_opt: Option<Json<RequeueRequest>>,
 ) -> impl IntoResponse {
+    let mut ids = payload_opt.map(|Json(p)| p.ids).unwrap_or_default();
+    if let Some(id) = query.id {
+        ids.push(id);
+    }
+
+    if ids.is_empty() {
+        return (StatusCode::BAD_REQUEST, "Missing ids in payload or id in query").into_response();
+    }
+
     let sql = "UPDATE dead_letter_queue SET resolved = true, resolved_at = NOW() WHERE id = ANY($1) RETURNING id";
-    match sqlx::query(sql).bind(&payload.ids).fetch_all(&state.repo.get().unwrap().pool).await {
+    match sqlx::query(sql).bind(&ids).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(rows) => {
             let updated: Vec<uuid::Uuid> = rows.iter().map(|r| r.get(0)).collect();
             (StatusCode::OK, Json(serde_json::json!({ "requeued": updated }))).into_response()
