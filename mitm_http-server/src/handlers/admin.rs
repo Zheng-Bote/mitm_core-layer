@@ -466,8 +466,22 @@ pub async fn handle_post_credentials(
     
     let (dek_id, wrapped_key) = match key_row {
         Some(k) => k,
-        None => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": "No active DEK found"}))).into_response(),
+        None => {
+            match crate::ipc_client::crypto_generate_wrapped_dek(&socket_path).await {
+                Ok(new_wrapped_dek) => {
+                    let new_id: uuid::Uuid = match sqlx::query_scalar("INSERT INTO storage_keys (wrapped_key, is_active) VALUES ($1, true) RETURNING id")
+                        .bind(&new_wrapped_dek)
+                        .fetch_one(&state.repo.get().unwrap().pool).await {
+                            Ok(id) => id,
+                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("DB Error: {}", e)}))).into_response(),
+                        };
+                    (new_id, new_wrapped_dek)
+                },
+                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("IPC Crypto Error: {}", e)}))).into_response(),
+            }
+        }
     };
+ 
 
     let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, payload.config_payload.into_bytes(), &socket_path).await {
         Ok(res) => res,
@@ -532,8 +546,22 @@ pub async fn handle_post_delivery_targets(
     
     let (dek_id, wrapped_key) = match key_row {
         Some(k) => k,
-        None => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": "No active DEK found"}))).into_response(),
+        None => {
+            match crate::ipc_client::crypto_generate_wrapped_dek(&socket_path).await {
+                Ok(new_wrapped_dek) => {
+                    let new_id: uuid::Uuid = match sqlx::query_scalar("INSERT INTO storage_keys (wrapped_key, is_active) VALUES ($1, true) RETURNING id")
+                        .bind(&new_wrapped_dek)
+                        .fetch_one(&state.repo.get().unwrap().pool).await {
+                            Ok(id) => id,
+                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("DB Error: {}", e)}))).into_response(),
+                        };
+                    (new_id, new_wrapped_dek)
+                },
+                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("IPC Crypto Error: {}", e)}))).into_response(),
+            }
+        }
     };
+ 
 
     let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, payload.config_payload.into_bytes(), &socket_path).await {
         Ok(res) => res,
