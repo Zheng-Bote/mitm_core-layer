@@ -73,15 +73,17 @@ Data source, transformation, and target configurations.
 | `/api/v1/config/credentials/:id` | PUT | ADMIN |
 | `/api/v1/config/targets` | GET, POST | ADMIN |
 | `/api/v1/config/targets/:id` | PUT | ADMIN |
-| `/api/v1/config/transformations/sources` | GET | ADMIN |
-| `/api/v1/config/transformations/targets` | GET | ADMIN |
+| `/api/v1/config/transformations/sources` | GET, POST | ADMIN |
+| `/api/v1/config/transformations/sources/:id` | DELETE | ADMIN |
+| `/api/v1/config/transformations/targets` | GET, POST | ADMIN |
+| `/api/v1/config/transformations/targets/:id` | DELETE | ADMIN |
 | `/api/v1/config/transformations/rules` | GET, POST | ADMIN |
 | `/api/v1/config/transformations/rules/:id` | DELETE | ADMIN |
 | `/api/v1/config/transformations` | GET, POST | ADMIN |
 | `/api/v1/config/transformations/:id` | DELETE | ADMIN |
 | `/api/v1/config/transformations/validations` | GET, POST | ADMIN |
 | `/api/v1/config/transformations/validations/:id` | DELETE | ADMIN |
-| `/api/v1/config/transformations/topic-dependencies`| GET | ADMIN |
+| `/api/v1/config/transformations/topic-dependencies`| GET, POST, DELETE | ADMIN |
 | `/api/v1/config/transformations/auto-map` | POST | ADMIN |
 
 ### 2.6 IAM API
