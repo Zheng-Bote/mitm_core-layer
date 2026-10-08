@@ -160,14 +160,23 @@ pub async fn handle_assign_roles(
     {
         Ok(Some(row)) => {
             use sqlx::Row;
-            row.get::<Vec<u8>, _>("wrapped_key")
+            Some(row.get::<Vec<u8>, _>("wrapped_key"))
         },
-        Ok(None) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "No active key".into(), detail: None }] })).into_response(),
+        Ok(None) => None,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response(),
     };
 
-    let wrapped_dek = active_dek_row.clone();
-    let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(active_dek_row, roles_json, &socket_path).await {
+    let wrapped_dek = match active_dek_row {
+        Some(dek) => dek,
+        None => {
+            match crate::ipc_client::crypto_generate_wrapped_dek(&socket_path).await {
+                Ok(dek) => dek,
+                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Failed to generate wrapped DEK".into(), detail: Some(e.to_string()) }] })).into_response(),
+            }
+        }
+    };
+
+    let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_dek.clone(), roles_json, &socket_path).await {
         Ok(res) => res,
         Err(e) => {
             let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "IPC Crypto error".into(), detail: Some(e.to_string()) }] };

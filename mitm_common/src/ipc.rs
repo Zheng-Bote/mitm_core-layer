@@ -46,6 +46,8 @@ pub enum IpcResponse {
     CryptoEncryptResult { nonce: Vec<u8>, ciphertext: Vec<u8> },
     #[serde(rename = "crypto_decrypt_result")]
     CryptoDecryptResult { plaintext: Vec<u8> },
+    #[serde(rename = "crypto_generate_wrapped_dek_result")]
+    CryptoGenerateWrappedDekResult { wrapped_dek: Vec<u8> },
     #[serde(rename = "get_info_result")]
     GetInfoResult(InfoResponse),
 }
@@ -99,6 +101,8 @@ pub enum SchedulerRequest {
     CryptoEncrypt { wrapped_dek: Vec<u8>, plaintext: Vec<u8> },
     #[serde(rename = "crypto_decrypt")]
     CryptoDecrypt { wrapped_dek: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8> },
+    #[serde(rename = "crypto_generate_wrapped_dek")]
+    CryptoGenerateWrappedDek,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
