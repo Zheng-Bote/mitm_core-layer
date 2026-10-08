@@ -188,6 +188,37 @@ pub async fn handle_delete_topic_dependencies(
     }
 }
 
+#[derive(Deserialize)]
+pub struct TopicDependencyPayload {
+    pub topic: String,
+    pub required_sources: Vec<String>,
+}
+
+pub async fn handle_post_topic_dependencies(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    Json(payload): Json<TopicDependencyPayload>,
+) -> impl IntoResponse {
+    let sql = r#"
+        INSERT INTO topic_dependencies (topic, required_sources)
+        VALUES ($1, $2)
+        ON CONFLICT (topic) DO UPDATE SET
+            required_sources = EXCLUDED.required_sources
+    "#;
+    match sqlx::query(sql)
+        .bind(&payload.topic)
+        .bind(&payload.required_sources)
+        .execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("UPSERT_TOPIC_DEPENDENCY").bind(format!("topic: {}", payload.topic))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
+
 fn normalize_for_match(s: &str) -> String {
     s.to_lowercase().replace('_', "").replace('-', "").replace(' ', "")
 }
