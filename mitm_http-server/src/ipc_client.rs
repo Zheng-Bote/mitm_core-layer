@@ -347,3 +347,29 @@ pub async fn query_scheduler_info(socket_path: &std::path::Path) -> String {
         _ => "offline".to_string(),
     }
 }
+
+pub async fn crypto_generate_wrapped_dek(socket_path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let mut stream = UnixStream::connect(socket_path).await
+        .map_err(|e| format!("Failed to connect to UDS: {}", e))?;
+    
+    let req = mitm_common::ipc::SchedulerRequest::CryptoGenerateWrappedDek;
+    let mut json_req = serde_json::to_string(&req).unwrap();
+    json_req.push('\n');
+    
+    stream.write_all(json_req.as_bytes()).await
+        .map_err(|e| format!("Failed to write: {}", e))?;
+    
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).await
+        .map_err(|e| format!("Failed to read: {}", e))?;
+    
+    let resp: IpcResponse = serde_json::from_str(&line)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    
+    match resp {
+        IpcResponse::CryptoGenerateWrappedDekResult { wrapped_dek } => Ok(wrapped_dek),
+        IpcResponse::Error(e) => Err(e),
+        _ => Err("Unexpected IPC response".to_string()),
+    }
+}

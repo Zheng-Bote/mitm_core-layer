@@ -210,6 +210,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
                                         }
                                     }
+                                    Ok(SchedulerRequest::CryptoGenerateWrappedDek) => {
+                                        use mitm_common::ipc::IpcResponse;
+                                        use tokio::io::AsyncWriteExt;
+                                        let resp = match mitm_common::crypto::generate_wrapped_dek(&kek_clone) {
+                                            Ok(wrapped_dek) => IpcResponse::CryptoGenerateWrappedDekResult { wrapped_dek },
+                                            Err(e) => IpcResponse::Error(e.to_string()),
+                                        };
+                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                            let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                        }
+                                    }
                                     Ok(SchedulerRequest::CryptoDecrypt { wrapped_dek, nonce, ciphertext }) => {
                                         use mitm_common::ipc::IpcResponse;
                                         use tokio::io::AsyncWriteExt;
