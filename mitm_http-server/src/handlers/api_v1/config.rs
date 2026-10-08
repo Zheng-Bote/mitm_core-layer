@@ -11,6 +11,7 @@ pub fn routes() -> Router<AppState> {
         .route("/targets/:id", put(handle_put_delivery_targets))
         
         .route("/transformations/sources", get(crate::handlers::transformation::handle_sources))
+        .route("/transformations/sources", post(crate::handlers::transformation::handle_post_sources))
         .route("/transformations/targets", get(crate::handlers::transformation::handle_targets))
         .route("/transformations/rules", get(crate::handlers::transformation::handle_rules))
         .route("/transformations/rules", post(crate::handlers::transformation::handle_post_rules))

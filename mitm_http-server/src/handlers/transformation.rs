@@ -439,3 +439,43 @@ pub async fn handle_delete_rules(
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
     }
 }
+
+#[derive(Deserialize)]
+pub struct SourcePayload {
+    pub id: Option<uuid::Uuid>,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub topic: String,
+}
+
+pub async fn handle_post_sources(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    Json(payload): Json<SourcePayload>,
+) -> impl IntoResponse {
+    let id = payload.id.unwrap_or_else(uuid::Uuid::new_v4);
+    let sql = r#"
+        INSERT INTO mapping_source (id, name, type, topic, version)
+        VALUES ($1, $2, $3, $4, 1)
+        ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            type = EXCLUDED.type,
+            topic = EXCLUDED.topic,
+            version = mapping_source.version + 1
+    "#;
+    match sqlx::query(sql)
+        .bind(id)
+        .bind(&payload.name)
+        .bind(&payload.r#type)
+        .bind(&payload.topic)
+        .execute(&state.repo.get().unwrap().pool).await {
+        Ok(_) => {
+            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                .bind(&auth.username).bind("UPSERT_SOURCE").bind(format!("id: {}, name: {}", id, payload.name))
+                .execute(&state.repo.get().unwrap().pool).await;
+            StatusCode::OK.into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
