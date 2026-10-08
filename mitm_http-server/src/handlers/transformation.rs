@@ -34,7 +34,7 @@ pub struct MappingTransformation { pub id: uuid::Uuid, pub name: String, pub des
 #[derive(Serialize, sqlx::FromRow)]
 pub struct MappingValidation { pub id: uuid::Uuid, pub name: String, pub description: Option<String>, pub parameters: Option<serde_json::Value>, pub version: i32, }
 #[derive(Serialize, sqlx::FromRow)]
-pub struct TransformationError { pub id: uuid::Uuid, pub raw_ingestion_id: Option<uuid::Uuid>, pub failed_field: String, pub rule_name: String, pub error_message: String, pub created_at: chrono::DateTime<chrono::Utc>, }
+pub struct TransformationError { pub id: uuid::Uuid, pub raw_ingestion_id: Option<uuid::Uuid>, pub failed_field: Option<String>, pub rule_name: Option<String>, pub error_message: String, pub created_at: chrono::DateTime<chrono::Utc>, }
 #[derive(Serialize, sqlx::FromRow)]
 pub struct TopicDependency { pub topic: String, pub required_sources: Vec<String>, }
 
@@ -97,7 +97,10 @@ pub async fn handle_errors(State(state): State<AppState>, Query(query): Query<Pa
 
     match builder.build_query_as::<TransformationError>().fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Err(e) => {
+            log::error!("Database error in handle_errors: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 pub async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
@@ -129,8 +132,8 @@ pub async fn handle_errors_bin(State(state): State<AppState>, Query(query): Quer
             for e in &res {
                 let id_str = fb.create_string(&e.id.to_string());
                 let corr_str = e.raw_ingestion_id.map(|uid| fb.create_string(&uid.to_string()));
-                let field_str = fb.create_string(&e.failed_field);
-                let rule_str = fb.create_string(&e.rule_name);
+                let field_str = fb.create_string(e.failed_field.as_deref().unwrap_or(""));
+                let rule_str = fb.create_string(e.rule_name.as_deref().unwrap_or(""));
                 let msg_str = fb.create_string(&e.error_message);
                 let ts_str = fb.create_string(&e.created_at.to_rfc3339());
                 
