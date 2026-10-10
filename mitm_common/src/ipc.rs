@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct AuthRequest {
     pub username: String,
     pub token: String,
+    pub client_ip: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +16,9 @@ pub struct AuthResponse {
     pub success: bool,
     pub username: String,
     pub roles: Vec<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub is_active: bool,
     pub error_message: Option<String>,
 }
 

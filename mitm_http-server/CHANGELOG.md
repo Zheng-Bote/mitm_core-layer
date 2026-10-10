@@ -52,6 +52,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **API V1 Extensions**: Restored previously missing endpoints into `/api/v1/*` (e.g., file upload, system actions, topic dependencies deletion) to support C++ client migration.
 - **RBAC**: Enforced explicit Casbin policies on `/api/v1/jobs` endpoints to restrict execution/stopping strictly to `USER` or `ADMIN`, while `VIEWER` is restricted to read-only access.
 
+## [1.6.0] - 2026-10-10
+### Added
+- **RBAC Enhancements (Issue #53):** Added `client_ip` tracking to `/api/v1/auth/session`.
+- **RBAC Enhancements (Issue #53):** Updated `/api/v1/auth/me` to return `first_name`, `last_name`, `is_active`, and `client_ip`.
+- **RBAC Enhancements (Issue #53):** Added `PUT /api/v1/iam/users/:id` endpoint for editing user profile fields.
+- **RBAC Enhancements (Issue #53):** Added `DELETE /api/v1/iam/users/:id/session` endpoint for administratively terminating user sessions.
+
 ## [1.5.1] - 2026-10-06
 
 ### Fixed

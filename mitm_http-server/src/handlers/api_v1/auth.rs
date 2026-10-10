@@ -15,6 +15,7 @@ pub struct SessionRequest {
     pub os_user: String,
     #[allow(dead_code)]
     pub token: Option<String>,
+    pub client_ip: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -26,6 +27,10 @@ pub struct SessionResponse {
 pub struct RolesResponse {
     pub roles: Vec<String>,
     pub os_user: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub is_active: bool,
+    pub client_ip: Option<String>,
 }
 
 // Handler for POST /api/user/v1/session
@@ -47,8 +52,8 @@ pub async fn create_session(
     
     let result = sqlx::query(
         r#"
-        INSERT INTO user_sessions (session_token, os_user, created_at, expires_at, last_active_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO user_sessions (session_token, os_user, created_at, expires_at, last_active_at, client_ip)
+        VALUES ($1, $2, $3, $4, $5, $6)
         "#
     )
     .bind(token_uuid)
@@ -56,6 +61,7 @@ pub async fn create_session(
     .bind(now)
     .bind(expires_at)
     .bind(now)
+    .bind(&payload.client_ip)
     .execute(&state.repo.get().unwrap().pool)
     .await;
 
@@ -103,9 +109,9 @@ pub async fn get_roles(
     // Check token validity
     let now = Utc::now();
     
-    let session_opt = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>)>(
+    let session_opt = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, Option<String>)>(
         r#"
-        SELECT os_user, expires_at, last_active_at FROM user_sessions
+        SELECT os_user, expires_at, last_active_at, client_ip FROM user_sessions
         WHERE session_token = $1
         "#
     )
@@ -141,12 +147,21 @@ pub async fn get_roles(
 
         let pool = &state.repo.get().unwrap().pool;
         let mut roles = vec![];
+        let mut first_name = None;
+        let mut last_name = None;
+        let mut is_active = false;
 
         // Fetch user ID for the os_user
-        if let Ok(Some(user_id)) = sqlx::query_scalar::<_, i32>("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")
+        if let Ok(Some((user_id, f_name, l_name, active))) = sqlx::query_as::<_, (i32, Option<String>, Option<String>, bool)>(
+            "SELECT id, first_name, last_name, is_active FROM admin_users WHERE username = $1"
+        )
             .bind(&session.0)
             .fetch_optional(pool).await 
         {
+            first_name = f_name;
+            last_name = l_name;
+            is_active = active;
+
             // Fetch encrypted roles
             let row = sqlx::query_as::<_, (Vec<u8>, Vec<u8>, Vec<u8>)>(
                 "SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1"
@@ -173,7 +188,14 @@ pub async fn get_roles(
             }
         }
 
-        Ok(Json(RolesResponse { roles, os_user: session.0 }))
+        Ok(Json(RolesResponse { 
+            roles, 
+            os_user: session.0,
+            first_name,
+            last_name,
+            is_active,
+            client_ip: session.3,
+        }))
 
     } else {
         Err((StatusCode::UNAUTHORIZED, "Invalid session token".to_string()))

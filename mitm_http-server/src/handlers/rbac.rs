@@ -3,7 +3,7 @@
  */
 
 use axum::{
-    extract::{State, Query},
+    extract::{State, Query, Path},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -46,11 +46,13 @@ pub async fn handle_get_roles(State(state): State<AppState>) -> impl IntoRespons
 pub struct User {
     pub id: i32,
     pub username: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
     pub is_active: bool,
 }
 
 pub async fn handle_get_users(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, User>("SELECT id, username, is_active FROM admin_users ORDER BY id ASC")
+    match sqlx::query_as::<_, User>("SELECT id, username, first_name, last_name, is_active FROM admin_users ORDER BY id ASC")
         .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
@@ -72,6 +74,9 @@ pub async fn handle_get_users(State(state): State<AppState>) -> impl IntoRespons
 pub struct CreateUserReq {
     pub username: String,
     pub password: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub is_active: Option<bool>,
 }
 
 pub async fn handle_create_user(
@@ -92,10 +97,14 @@ pub async fn handle_create_user(
     };
     
     let hash_str = format!("{}:{}", BASE64.encode(salt), BASE64.encode(hash));
+    let is_active = payload.is_active.unwrap_or(true);
 
-    match sqlx::query("INSERT INTO admin_users (username, password_hash, is_active) VALUES ($1, $2, true)")
+    match sqlx::query("INSERT INTO admin_users (username, password_hash, first_name, last_name, is_active) VALUES ($1, $2, $3, $4, $5)")
         .bind(&payload.username)
         .bind(hash_str)
+        .bind(&payload.first_name)
+        .bind(&payload.last_name)
+        .bind(is_active)
         .execute(&state.repo.get().unwrap().pool)
         .await 
     {
@@ -106,6 +115,79 @@ pub async fn handle_create_user(
             };
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
         }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct EditUserReq {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub is_active: Option<bool>,
+}
+
+pub async fn handle_edit_user(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    Json(payload): Json<EditUserReq>,
+) -> impl IntoResponse {
+    let mut update_query = "UPDATE admin_users SET ".to_string();
+    let mut param_idx = 1;
+    let mut binds_str: Vec<String> = vec![];
+    
+    if payload.first_name.is_some() || payload.last_name.is_some() || payload.is_active.is_some() {
+        if payload.first_name.is_some() { binds_str.push(format!("first_name = ${}", param_idx)); param_idx += 1; }
+        if payload.last_name.is_some() { binds_str.push(format!("last_name = ${}", param_idx)); param_idx += 1; }
+        if payload.is_active.is_some() { binds_str.push(format!("is_active = ${}", param_idx)); param_idx += 1; }
+        
+        update_query.push_str(&binds_str.join(", "));
+        update_query.push_str(&format!(" WHERE id = ${}", param_idx));
+
+        let mut q = sqlx::query(&update_query);
+        if let Some(ref f) = payload.first_name { q = q.bind(f); }
+        if let Some(ref l) = payload.last_name { q = q.bind(l); }
+        if let Some(a) = payload.is_active { q = q.bind(a); }
+        q = q.bind(id);
+
+        match q.execute(&state.repo.get().unwrap().pool).await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => {
+                let err = ErrorResponse {
+                    errors: vec![JsonApiError { status: "500".into(), title: "Database error".into(), detail: Some(e.to_string()) }]
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
+            }
+        }
+    } else {
+        StatusCode::OK.into_response()
+    }
+}
+
+pub async fn handle_terminate_session(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    // Delete session for user id. We need the username first.
+    let user_res: Result<Option<(String,)>, _> = sqlx::query_as("SELECT username FROM admin_users WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.repo.get().unwrap().pool)
+        .await;
+
+    if let Ok(Some((username,))) = user_res {
+        match sqlx::query("DELETE FROM user_sessions WHERE os_user = $1")
+            .bind(username)
+            .execute(&state.repo.get().unwrap().pool)
+            .await 
+        {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => {
+                let err = ErrorResponse {
+                    errors: vec![JsonApiError { status: "500".into(), title: "Database error".into(), detail: Some(e.to_string()) }]
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
+            }
+        }
+    } else {
+        StatusCode::NOT_FOUND.into_response()
     }
 }
 

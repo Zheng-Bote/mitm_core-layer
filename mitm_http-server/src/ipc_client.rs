@@ -13,6 +13,7 @@ pub async fn authenticate_via_ipc(username: &str, token: &str, socket_path: &std
     let req = IpcRequest::Authenticate(AuthRequest {
         username: username.to_string(),
         token: token.to_string(),
+        client_ip: None,
     });
     
     let mut json_req = serde_json::to_string(&req).unwrap();
@@ -90,6 +91,9 @@ pub async fn auth_middleware(
         success: false,
         username: String::new(),
         roles: vec![],
+        first_name: None,
+        last_name: None,
+        is_active: false,
         error_message: None,
     };
 
