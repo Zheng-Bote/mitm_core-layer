@@ -611,3 +611,57 @@ pub async fn handle_post_delivery_targets(
         }
     }
 }
+
+pub async fn handle_delete_credentials(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM source_credentials WHERE id = $1")
+        .bind(id)
+        .execute(&state.repo.get().unwrap().pool)
+        .await
+    {
+        Ok(result) => {
+            if result.rows_affected() > 0 {
+                let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                    .bind(&auth.username)
+                    .bind("DELETE_CREDENTIAL")
+                    .bind(format!("id: {}", id))
+                    .execute(&state.repo.get().unwrap().pool)
+                    .await;
+                StatusCode::NO_CONTENT.into_response()
+            } else {
+                StatusCode::NOT_FOUND.into_response()
+            }
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}
+
+pub async fn handle_delete_delivery_targets(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM delivery_targets WHERE id = $1")
+        .bind(id)
+        .execute(&state.repo.get().unwrap().pool)
+        .await
+    {
+        Ok(result) => {
+            if result.rows_affected() > 0 {
+                let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
+                    .bind(&auth.username)
+                    .bind("DELETE_TARGET_CREDENTIAL")
+                    .bind(format!("id: {}", id))
+                    .execute(&state.repo.get().unwrap().pool)
+                    .await;
+                StatusCode::NO_CONTENT.into_response()
+            } else {
+                StatusCode::NOT_FOUND.into_response()
+            }
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+    }
+}

@@ -5,10 +5,10 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/credentials", get(crate::handlers::admin::handle_credentials))
         .route("/credentials", post(crate::handlers::admin::handle_post_credentials))
-        .route("/credentials/:id", put(handle_put_credentials))
+        .route("/credentials/:id", put(handle_put_credentials).delete(crate::handlers::admin::handle_delete_credentials))
         .route("/targets", get(crate::handlers::admin::handle_delivery_targets))
         .route("/targets", post(crate::handlers::admin::handle_post_delivery_targets))
-        .route("/targets/:id", put(handle_put_delivery_targets))
+        .route("/targets/:id", put(handle_put_delivery_targets).delete(crate::handlers::admin::handle_delete_delivery_targets))
         
         .route("/transformations/sources", get(crate::handlers::transformation::handle_sources))
         .route("/transformations/sources", post(crate::handlers::transformation::handle_post_sources))
