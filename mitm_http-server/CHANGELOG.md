@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-10-10
+
+### Added
+- **API V1 Extensions**: Added `DELETE /api/v1/config/credentials/:id` and `DELETE /api/v1/config/targets/:id` endpoints to allow `ADMIN` users to delete source credentials and delivery targets.
+
 ## [1.6.6] - 2026-10-08
 
 ### Fixed
