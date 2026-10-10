@@ -44,6 +44,23 @@ pub async fn create_session(
     // We check if the token matches an admin user in the DB.
     // If not, we still might allow them as a VIEWER based on os_user.
     // For now, let's just insert a session into user_sessions.
+
+    // Check if the user is explicitly marked as inactive
+    if let Some(repo) = state.repo.get() {
+        match sqlx::query_scalar::<_, bool>("SELECT is_active FROM admin_users WHERE username = $1")
+            .bind(&payload.os_user)
+            .fetch_optional(&repo.pool)
+            .await
+        {
+            Ok(Some(active)) => {
+                if !active {
+                    return Err((StatusCode::FORBIDDEN, r#"{"message":"Login Rejected: User account is inactive."}"#.to_string()));
+                }
+            }
+            Ok(None) => {} // User doesn't exist, we might still allow them as VIEWER based on os_user
+            Err(e) => log::error!("DB error checking is_active: {}", e),
+        }
+    }
     let token_uuid = Uuid::new_v4();
     
     // 24 hours absolute, 2 hours idle
