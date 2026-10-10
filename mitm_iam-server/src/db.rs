@@ -131,6 +131,16 @@ impl Repository {
         Ok(record.map(|r| r.0))
     }
 
+    pub async fn get_user(&self, username: &str) -> Result<Option<(i32, Option<String>, Option<String>, bool)>, Box<dyn Error>> {
+        let record: Option<(i32, Option<String>, Option<String>, bool)> = sqlx::query_as(
+            "SELECT id, first_name, last_name, is_active FROM admin_users WHERE username = $1"
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(record)
+    }
+
 
     pub async fn get_user_roles(&self, username: &str, kek: &[u8]) -> Result<Vec<String>, Box<dyn Error>> {
         let record: Option<(i32,)> = sqlx::query_as("SELECT id FROM admin_users WHERE username = $1 AND is_active = true")

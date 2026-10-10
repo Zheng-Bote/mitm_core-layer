@@ -34,4 +34,6 @@ Please confirm that this feature respects the global `mitm-2` constraints define
 
 - [ ] Criterion 1
 - [ ] Criterion 2
-- [ ] CHANGELOG.md and README.md are up-to-date
+- [ ] CHANGELOG.md is up-to-date
+- [ ] README.md is up-to-date
+- [ ] docs/api/api_v<version>.md is up-to-date

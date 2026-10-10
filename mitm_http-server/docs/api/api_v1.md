@@ -92,7 +92,8 @@ Identity & Access Management (Users & Roles).
 | API-Endpoint | Method | required role |
 | --- | --- | --- |
 | `/api/v1/iam/users` | GET, POST | ADMIN |
-| `/api/v1/iam/users/:id` | GET, DELETE | ADMIN |
+| `/api/v1/iam/users/:id` | GET, PUT, DELETE | ADMIN |
+| `/api/v1/iam/users/:id/session` | DELETE | ADMIN |
 | `/api/v1/iam/roles` | GET | ADMIN |
 | `/api/v1/iam/assign-role` | POST | ADMIN |
 
