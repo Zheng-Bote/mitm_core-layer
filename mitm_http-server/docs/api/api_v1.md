@@ -70,9 +70,9 @@ Data source, transformation, and target configurations.
 | API-Endpoint | Method | required role |
 | --- | --- | --- |
 | `/api/v1/config/credentials` | GET, POST | ADMIN |
-| `/api/v1/config/credentials/:id` | PUT | ADMIN |
+| `/api/v1/config/credentials/:id` | PUT, DELETE | ADMIN |
 | `/api/v1/config/targets` | GET, POST | ADMIN |
-| `/api/v1/config/targets/:id` | PUT | ADMIN |
+| `/api/v1/config/targets/:id` | PUT, DELETE | ADMIN |
 | `/api/v1/config/transformations/sources` | GET, POST | ADMIN |
 | `/api/v1/config/transformations/sources/:id` | DELETE | ADMIN |
 | `/api/v1/config/transformations/targets` | GET, POST | ADMIN |
