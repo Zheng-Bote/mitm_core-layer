@@ -48,6 +48,10 @@ C4Component
     Rel(ipc_client, scheduler, "Sends UDS messages", "JSON")
 ```
 
+## Authentication & WebAuthn
+- **WebAuthn FIDO2 / Passkeys**: Provides Relying Party ceremony endpoints under `/api/v1/auth/webauthn/*` (`register/start`, `register/finish`, `login/start`, `login/finish`) and `/api/v1/auth/bootstrap/status`.
+- **RBAC & Trust Proxy**: Enforces role memberships and integrates with the IAM microservice via Unix Domain Sockets.
+
 ## Configuration
 
 - `MITM_DB_URL` (optional): PostgreSQL Connection String.
