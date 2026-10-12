@@ -186,14 +186,18 @@ pub async fn start_registration(
     });
 
     let expires_at = Utc::now() + Duration::minutes(10);
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO webauthn_states (id, challenge_type, state_data, expires_at) VALUES ($1, 'register', $2, $3)"
     )
     .bind(ceremony_id)
     .bind(state_data)
     .bind(expires_at)
     .execute(&repo.pool)
-    .await;
+    .await {
+        log::error!("Failed to persist webauthn registration state to database: {}", e);
+        let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(format!("Failed to persist ceremony state: {}", e)) }] };
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+    }
 
     (StatusCode::OK, Json(StartRegistrationResp {
         ceremony_id,
@@ -478,8 +482,7 @@ pub async fn start_login(
         "user_id": user_id,
     });
     let expires_at = Utc::now() + Duration::minutes(5);
-
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO webauthn_states (id, challenge_type, state_data, user_id, expires_at) VALUES ($1, 'login', $2, $3, $4)"
     )
     .bind(ceremony_id)
@@ -487,7 +490,11 @@ pub async fn start_login(
     .bind(user_id)
     .bind(expires_at)
     .execute(&repo.pool)
-    .await;
+    .await {
+        log::error!("Failed to persist webauthn login state to database: {}", e);
+        let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(format!("Failed to persist ceremony state: {}", e)) }] };
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+    }
 
     (StatusCode::OK, Json(StartLoginResp {
         ceremony_id,
