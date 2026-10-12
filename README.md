@@ -29,7 +29,7 @@ C4Context
 The workspace is split into the following crates. Please consult the individual `README.md` and `CHANGELOG.md` files in each component directory for detailed documentation, configuration options, and version histories:
 
 - [**mitm_common**](./mitm_common): Shared types, IPC payloads, and configuration loader.
-- [**mitm_http-server**](./mitm_http-server): The Axum-based API Gateway (REST JSON:API).
+- [**mitm_http-server**](./mitm_http-server): The Axum-based API Gateway (REST JSON:API) with WebAuthn/FIDO2 Relying Party support.
 - [**mitm_iam-server**](./mitm_iam-server): The Identity and Access Management server handling AES-256-GCM envelope encryption and RBAC.
 - [**mitm_scheduler-server**](./mitm_scheduler-server): The job orchestration engine tracking system PIDs and executing jobs.
 
