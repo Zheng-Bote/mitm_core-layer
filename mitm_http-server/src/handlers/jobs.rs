@@ -268,7 +268,7 @@ pub async fn handle_upload_file(
         let dest_path = std::path::Path::new(&state.config.upload_dir).join(format!("{}_{}", timestamp, file_name));
         
         if let Err(e) = std::fs::write(&dest_path, &data) {
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({ "error": format!("Failed to save file: {}", e) }))).into_response();
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("Failed to save file: {}", e)) }] })).into_response();
         }
         
         // Trigger collector
@@ -288,5 +288,5 @@ pub async fn handle_upload_file(
         return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({ "message": "File uploaded" }))).into_response();
     }
 
-    (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({ "error": "No file field found" }))).into_response()
+    (axum::http::StatusCode::BAD_REQUEST, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("No file field found".into()) }] })).into_response()
 }

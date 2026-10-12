@@ -102,9 +102,7 @@ pub async fn handle_dashboard_stats(
         Ok(info) => info,
         Err(e) => {
             log::error!("Failed to fetch db info: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                "errors": [{"status": "500", "title": "DB Error", "detail": e.to_string()}]
-            }))).into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response();
         }
     };
 

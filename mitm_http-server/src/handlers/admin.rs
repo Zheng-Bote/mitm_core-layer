@@ -396,7 +396,7 @@ pub async fn handle_credentials(State(state): axum::extract::State<crate::handle
     ";
     let rows = match sqlx::query_as::<_, SourceCredentialRow>(query).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
     };
     
     let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
@@ -428,7 +428,7 @@ pub async fn handle_delivery_targets(State(state): axum::extract::State<crate::h
     ";
     let rows = match sqlx::query_as::<_, DeliveryTargetRow>(query).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
     };
     
     let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
@@ -461,7 +461,7 @@ pub async fn handle_post_credentials(
     let key_row: Option<(uuid::Uuid, Vec<u8>)> = match sqlx::query_as("SELECT id, wrapped_key FROM storage_keys WHERE is_active = true LIMIT 1")
         .fetch_optional(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
     };
     
     let (dek_id, wrapped_key) = match key_row {
@@ -473,11 +473,11 @@ pub async fn handle_post_credentials(
                         .bind(&new_wrapped_dek)
                         .fetch_one(&state.repo.get().unwrap().pool).await {
                             Ok(id) => id,
-                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("DB Error: {}", e)}))).into_response(),
+                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("DB Error: {}", e)) }] })).into_response(),
                         };
                     (new_id, new_wrapped_dek)
                 },
-                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("IPC Crypto Error: {}", e)}))).into_response(),
+                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("IPC Crypto Error: {}", e)) }] })).into_response(),
             }
         }
     };
@@ -503,12 +503,12 @@ pub async fn handle_post_credentials(
             .bind(payload.is_active)
             .execute(&state.repo.get().unwrap().pool).await {
             Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response(),
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     } else {
         let id_uuid = match uuid::Uuid::parse_str(payload.id.as_ref().unwrap()) {
             Ok(u) => u,
-            Err(_) => return (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({"error": "Invalid UUID"}))).into_response(),
+            Err(_) => return (axum::http::StatusCode::BAD_REQUEST, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Invalid UUID".into()) }] })).into_response(),
         };
         
         let update_query = "
@@ -527,7 +527,7 @@ pub async fn handle_post_credentials(
             .bind(id_uuid)
             .execute(&state.repo.get().unwrap().pool).await {
             Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response(),
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     }
 }
@@ -541,7 +541,7 @@ pub async fn handle_post_delivery_targets(
     let key_row: Option<(uuid::Uuid, Vec<u8>)> = match sqlx::query_as("SELECT id, wrapped_key FROM storage_keys WHERE is_active = true LIMIT 1")
         .fetch_optional(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
     };
     
     let (dek_id, wrapped_key) = match key_row {
@@ -553,11 +553,11 @@ pub async fn handle_post_delivery_targets(
                         .bind(&new_wrapped_dek)
                         .fetch_one(&state.repo.get().unwrap().pool).await {
                             Ok(id) => id,
-                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("DB Error: {}", e)}))).into_response(),
+                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("DB Error: {}", e)) }] })).into_response(),
                         };
                     (new_id, new_wrapped_dek)
                 },
-                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": format!("IPC Crypto Error: {}", e)}))).into_response(),
+                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("IPC Crypto Error: {}", e)) }] })).into_response(),
             }
         }
     };
@@ -583,12 +583,12 @@ pub async fn handle_post_delivery_targets(
             .bind(payload.is_active)
             .execute(&state.repo.get().unwrap().pool).await {
             Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response(),
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     } else {
         let id_uuid = match uuid::Uuid::parse_str(payload.id.as_ref().unwrap()) {
             Ok(u) => u,
-            Err(_) => return (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({"error": "Invalid UUID"}))).into_response(),
+            Err(_) => return (axum::http::StatusCode::BAD_REQUEST, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Invalid UUID".into()) }] })).into_response(),
         };
         
         let update_query = "
@@ -607,7 +607,7 @@ pub async fn handle_post_delivery_targets(
             .bind(id_uuid)
             .execute(&state.repo.get().unwrap().pool).await {
             Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response(),
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     }
 }
@@ -635,7 +635,7 @@ pub async fn handle_delete_credentials(
                 StatusCode::NOT_FOUND.into_response()
             }
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -662,6 +662,6 @@ pub async fn handle_delete_delivery_targets(
                 StatusCode::NOT_FOUND.into_response()
             }
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }

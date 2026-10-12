@@ -215,7 +215,7 @@ pub async fn handle_post_topic_dependencies(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -251,13 +251,13 @@ pub async fn handle_auto_map(
     Json(payload): Json<AutoMapRequest>,
 ) -> impl IntoResponse {
     if payload.source_fields.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Missing source_fields"}))).into_response();
+        return (StatusCode::BAD_REQUEST, Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Missing source_fields".into()) }] })).into_response();
     }
 
     let targets = match sqlx::query_as::<_, MappingTargetField>("SELECT id, topic, field_name, data_type, is_required, encrypted, version FROM mapping_target_field")
         .fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(t) => t,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     };
 
     let mut created = 0;
@@ -348,7 +348,7 @@ pub async fn handle_post_transformations(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -364,7 +364,7 @@ pub async fn handle_delete_transformations(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -396,7 +396,7 @@ pub async fn handle_post_validations(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -412,7 +412,7 @@ pub async fn handle_delete_validations(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -451,7 +451,7 @@ pub async fn handle_post_rules(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -467,7 +467,7 @@ pub async fn handle_delete_rules(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -507,7 +507,7 @@ pub async fn handle_post_sources(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -523,7 +523,7 @@ pub async fn handle_delete_sources(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -568,7 +568,7 @@ pub async fn handle_post_targets(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
 
@@ -584,6 +584,6 @@ pub async fn handle_delete_targets(
                 .execute(&state.repo.get().unwrap().pool).await;
             StatusCode::OK.into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
     }
 }
