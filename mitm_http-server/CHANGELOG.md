@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAuthn Relying Party (Issue #57)**: Integrated `webauthn-rs` providing passkey endpoints `/api/v1/auth/webauthn/register/start`, `/finish`, `/login/start`, `/finish`, and `/api/v1/auth/bootstrap/status`.
 - **Department & Inactive Registration (Issue #57)**: Added `department` field to user records and defaulted new user registrations to `is_active = false`. Initial bootstrap administrator via `INITIAL_ADMIN_TOKEN` is automatically set to `is_active = true` with `ADMIN` role.
 - **Multiple WebAuthn Keys Support (Issue #59)**: Allowed registered/existing users to register secondary/additional hardware tokens without modifying their `is_active` status or role memberships.
+- **WebAuthn Middleware Whitelist (Issue #61)**: Whitelisted WebAuthn endpoints (`/api/v1/auth/webauthn/*` and `/api/v1/auth/bootstrap/status`) in `auth_middleware` and allowed registered users to start registration ceremonies without 409 Conflict.
 
 ## [1.7.0] - 2026-10-10
 

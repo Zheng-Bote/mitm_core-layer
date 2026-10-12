@@ -134,19 +134,28 @@ pub async fn start_registration(
             let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Bootstrap Token is required when system is uninitialized.".into()) }] };
             return (StatusCode::BAD_REQUEST, Json(err)).into_response();
         }
-    } else {
-        // Check if user already exists
-        let exists: Option<i32> = sqlx::query_scalar("SELECT id FROM admin_users WHERE username = $1")
-            .bind(&payload.username)
-            .fetch_optional(&repo.pool)
-            .await
-            .unwrap_or(None);
-
-        if exists.is_some() {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "409".into(), title: "Conflict".into(), detail: Some("Username/LoginID already registered.".into()) }] };
-            return (StatusCode::CONFLICT, Json(err)).into_response();
-        }
     }
+
+    // Look up existing credentials if the user already exists (to exclude them from being re-registered)
+    let existing_creds: Vec<(String,)> = sqlx::query_as(
+        "SELECT credential_id FROM webauthn_credentials wc JOIN admin_users u ON wc.user_id = u.id WHERE u.username = $1"
+    )
+    .bind(&payload.username)
+    .fetch_all(&repo.pool)
+    .await
+    .unwrap_or_default();
+
+    let exclude_credentials: Option<Vec<CredentialID>> = if !existing_creds.is_empty() {
+        let cred_ids: Vec<CredentialID> = existing_creds
+            .into_iter()
+            .filter_map(|(cid,)| {
+                URL_SAFE_NO_PAD.decode(cid).ok().map(CredentialID::from)
+            })
+            .collect();
+        if cred_ids.is_empty() { None } else { Some(cred_ids) }
+    } else {
+        None
+    };
 
     let user_uuid = Uuid::new_v4();
     let display_name = format!("{} {}", payload.first_name.as_deref().unwrap_or(""), payload.last_name.as_deref().unwrap_or("")).trim().to_string();
@@ -156,7 +165,7 @@ pub async fn start_registration(
         user_uuid,
         &payload.username,
         &display_name,
-        None,
+        exclude_credentials,
     ) {
         Ok(res) => res,
         Err(e) => {
