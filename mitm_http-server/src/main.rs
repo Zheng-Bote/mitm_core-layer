@@ -215,11 +215,18 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                             let _ = enforcer.add_policy(vec!["ADMIN".to_string(), "/api/v1/*".to_string(), ".*".to_string()]).await;
                                         }
 
+                                        let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or_else(|_| "localhost".to_string());
+                                        let rp_origin_str = std::env::var("WEBAUTHN_RP_ORIGIN").unwrap_or_else(|_| format!("http://localhost:{}", parsed_cfg.http_port));
+                                        let rp_origin = webauthn_rs::prelude::Url::parse(&rp_origin_str).unwrap_or_else(|_| webauthn_rs::prelude::Url::parse("http://localhost:8080").unwrap());
+                                        let webauthn_builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin).expect("Invalid WebAuthn config");
+                                        let webauthn = std::sync::Arc::new(webauthn_builder.build().expect("Failed to build WebAuthn"));
+
                                         let app_state = handlers::AppState { 
-                                            repo: repo_cell_for_uds.clone(), 
-                                            config: std::sync::Arc::new(parsed_cfg.clone()),
-                                            enforcer: std::sync::Arc::new(tokio::sync::RwLock::new(enforcer)),
-                                        };
+                                             repo: repo_cell_for_uds.clone(), 
+                                             config: std::sync::Arc::new(parsed_cfg.clone()),
+                                             enforcer: std::sync::Arc::new(tokio::sync::RwLock::new(enforcer)),
+                                             webauthn,
+                                         };
 
                                         
                                         let auth_layer = axum::middleware::from_fn_with_state(
