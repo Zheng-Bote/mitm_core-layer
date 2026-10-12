@@ -54,6 +54,7 @@ C4Component
 
 ## Configuration
 
+- `INITIAL_ADMIN_TOKEN` (optional): Secret bootstrap token for registering the initial active administrator account.
 - `MITM_DB_URL` (optional): PostgreSQL Connection String.
 - `IAM_SOCKET_PATH` (optional): Path to the IAM UDS.
 - `SCHEDULER_SOCKET_PATH` (optional): Path to the Scheduler UDS.
