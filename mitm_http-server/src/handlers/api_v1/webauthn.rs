@@ -258,29 +258,43 @@ pub async fn finish_registration(
     let department = state_data["department"].as_str();
     let is_bootstrap = state_data["is_bootstrap"].as_bool().unwrap_or(false);
 
-    // Initial Bootstrap Admin is immediately is_active=true; standard registration is is_active=false
-    let is_active = is_bootstrap;
-
-    let user_id: i32 = match sqlx::query_scalar(
-        r#"
-        INSERT INTO admin_users (username, password_hash, first_name, last_name, department, is_active)
-        VALUES ($1, 'webauthn_passkey', $2, $3, $4, $5)
-        RETURNING id
-        "#
+    // Check if user already exists
+    let existing_user = sqlx::query_as::<_, (i32, bool)>(
+        "SELECT id, is_active FROM admin_users WHERE username = $1"
     )
     .bind(username)
-    .bind(first_name)
-    .bind(last_name)
-    .bind(department)
-    .bind(is_active)
-    .fetch_one(&repo.pool)
-    .await {
-        Ok(id) => id,
-        Err(e) => {
-            log::error!("Failed to insert user {}: {}", username, e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(e.to_string()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
-        }
+    .fetch_optional(&repo.pool)
+    .await
+    .unwrap_or(None);
+
+    let (user_id, is_new_user) = if let Some((uid, _)) = existing_user {
+        (uid, false)
+    } else {
+        // Initial Bootstrap Admin is immediately is_active=true; standard new user registration is is_active=false
+        let is_active = is_bootstrap;
+
+        let uid: i32 = match sqlx::query_scalar(
+            r#"
+            INSERT INTO admin_users (username, password_hash, first_name, last_name, department, is_active)
+            VALUES ($1, 'webauthn_passkey', $2, $3, $4, $5)
+            RETURNING id
+            "#
+        )
+        .bind(username)
+        .bind(first_name)
+        .bind(last_name)
+        .bind(department)
+        .bind(is_active)
+        .fetch_one(&repo.pool)
+        .await {
+            Ok(id) => id,
+            Err(e) => {
+                log::error!("Failed to insert user {}: {}", username, e);
+                let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(e.to_string()) }] };
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            }
+        };
+        (uid, true)
     };
 
     // If bootstrap, assign ADMIN role
@@ -359,6 +373,13 @@ pub async fn finish_registration(
             status: "active".into(),
             message: "Bootstrap admin registered and active.".into(),
             session_token: Some(token_uuid.to_string()),
+        })).into_response()
+    } else if !is_new_user {
+        // Additional key registered for an existing user
+        (StatusCode::CREATED, Json(FinishRegistrationResp {
+            status: "active".into(),
+            message: "Additional hardware token registered successfully.".into(),
+            session_token: None,
         })).into_response()
     } else {
         (StatusCode::CREATED, Json(FinishRegistrationResp {
