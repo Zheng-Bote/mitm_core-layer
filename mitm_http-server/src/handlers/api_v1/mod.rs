@@ -8,6 +8,7 @@ pub mod dlq;
 pub mod config;
 pub mod iam;
 pub mod auth;
+pub mod webauthn;
 
 pub fn routes(state: AppState) -> Router<AppState> {
     let authz_layer = middleware::from_fn_with_state(state.clone(), crate::handlers::authz_middleware);
@@ -22,7 +23,7 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .layer(authz_layer);
 
     let api_v1_router = Router::new()
-        .nest("/auth", auth::routes())
+        .nest("/auth", auth::routes().merge(webauthn::routes()))
         .nest("/system", system::routes())
         .merge(protected);
         

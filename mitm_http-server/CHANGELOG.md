@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-10-12
+
+### Added
+- **WebAuthn Relying Party (Issue #57)**: Integrated `webauthn-rs` providing passkey endpoints `/api/v1/auth/webauthn/register/start`, `/finish`, `/login/start`, `/finish`, and `/api/v1/auth/bootstrap/status`.
+- **Department & Inactive Registration (Issue #57)**: Added `department` field to user records and defaulted new user registrations to `is_active = false`. Initial bootstrap administrator via `INITIAL_ADMIN_TOKEN` is automatically set to `is_active = true` with `ADMIN` role.
+
 ## [1.7.0] - 2026-10-10
 
 ### Added
