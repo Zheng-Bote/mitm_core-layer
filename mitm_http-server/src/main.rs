@@ -226,6 +226,8 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                              config: std::sync::Arc::new(parsed_cfg.clone()),
                                              enforcer: std::sync::Arc::new(tokio::sync::RwLock::new(enforcer)),
                                              webauthn,
+                                             // Serialized origin (scheme://host[:port]) without the trailing slash `Url` adds.
+                                             webauthn_origin: rp_origin.origin().ascii_serialization(),
                                          };
 
                                         

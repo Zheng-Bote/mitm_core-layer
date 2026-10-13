@@ -35,6 +35,8 @@ pub struct StartRegistrationResp {
     pub ceremony_id: Uuid,
     pub public_key_options: CreationChallengeResponse,
     pub is_bootstrap: bool,
+    /// Origin the client must put into `clientDataJSON.origin`.
+    pub rp_origin: String,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +64,8 @@ pub struct StartLoginReq {
 pub struct StartLoginResp {
     pub ceremony_id: Uuid,
     pub public_key_options: RequestChallengeResponse,
+    /// Origin the client must put into `clientDataJSON.origin`.
+    pub rp_origin: String,
 }
 
 #[derive(Deserialize)]
@@ -203,6 +207,7 @@ pub async fn start_registration(
         ceremony_id,
         public_key_options: ccr,
         is_bootstrap,
+        rp_origin: state.webauthn_origin.clone(),
     })).into_response()
 }
 
@@ -499,6 +504,7 @@ pub async fn start_login(
     (StatusCode::OK, Json(StartLoginResp {
         ceremony_id,
         public_key_options: rcr,
+        rp_origin: state.webauthn_origin.clone(),
     })).into_response()
 }
 

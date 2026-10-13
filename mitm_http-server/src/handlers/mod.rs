@@ -22,6 +22,9 @@ pub struct AppState {
     pub config: Arc<mitm_common::config::DBConfig>,
     pub enforcer: Arc<tokio::sync::RwLock<casbin::Enforcer>>,
     pub webauthn: Arc<webauthn_rs::Webauthn>,
+    /// Origin that `webauthn` validates `clientDataJSON.origin` against. Returned to native
+    /// clients (which have no browser origin) so they can build matching client data.
+    pub webauthn_origin: String,
 }
 
 #[derive(serde::Serialize)]
