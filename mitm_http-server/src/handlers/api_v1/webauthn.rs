@@ -250,6 +250,19 @@ async fn insert_user(
     Ok(Some(uid))
 }
 
+/// Persists RP origin / RP ID mismatches to `system_logs`: they point to a misconfigured
+/// `WEBAUTHN_RP_ORIGIN` / `WEBAUTHN_RP_ID` rather than a bad credential. The client still only
+/// receives the generic verification error.
+async fn log_rp_config_error(state: &AppState, repo: &crate::db::Repository, ceremony: &str, e: &WebauthnError) {
+    if matches!(e, WebauthnError::InvalidRPOrigin | WebauthnError::InvalidRPIDHash) {
+        let msg = format!(
+            "WebAuthn {} rejected: {:?}. The server expects origin {} (WEBAUTHN_RP_ORIGIN) and a matching WEBAUTHN_RP_ID; the frontend must be served from that origin.",
+            ceremony, e, state.webauthn_origin
+        );
+        let _ = repo.log_system("ERROR", "http-server", &msg).await;
+    }
+}
+
 // POST /api/v1/auth/webauthn/register/finish
 pub async fn finish_registration(
     State(state): State<AppState>,
@@ -306,6 +319,7 @@ pub async fn finish_registration(
         Ok(pk) => pk,
         Err(e) => {
             log::error!("WebAuthn finish_passkey_registration error: {:?}", e);
+            log_rp_config_error(&state, repo, "registration", &e).await;
             let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Registration Verification Failed".into(), detail: Some(format!("{:?}", e)) }] };
             return (StatusCode::BAD_REQUEST, Json(err)).into_response();
         }
@@ -586,6 +600,7 @@ pub async fn finish_login(
         Ok(r) => r,
         Err(e) => {
             log::error!("WebAuthn finish_passkey_authentication failed: {:?}", e);
+            log_rp_config_error(&state, repo, "login", &e).await;
             let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Passkey verification failed.".into()) }] };
             return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
         }
