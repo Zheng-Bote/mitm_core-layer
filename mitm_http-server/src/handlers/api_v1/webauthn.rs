@@ -2,9 +2,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::net::SocketAddr;
 use axum::{
-    extract::{State, Json},
-    http::StatusCode,
+    extract::{ConnectInfo, State, Json},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
@@ -15,6 +16,7 @@ use chrono::{Utc, Duration};
 use base64::{Engine as _, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
 use webauthn_rs::prelude::*;
 use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use super::auth_guard;
 
 #[derive(Serialize)]
 pub struct BootstrapStatusResponse {
@@ -128,9 +130,8 @@ pub async fn start_registration(
 
     if is_bootstrap {
         // Validate bootstrap token
-        let expected_token = std::env::var("INITIAL_ADMIN_TOKEN").unwrap_or_else(|_| "wba_boot_init".to_string());
         if let Some(token) = &payload.bootstrap_token {
-            if token != &expected_token {
+            if !auth_guard::bootstrap_token_matches(token) {
                 let err = ErrorResponse { errors: vec![JsonApiError { status: "403".into(), title: "Forbidden".into(), detail: Some("Invalid Bootstrap Token.".into()) }] };
                 return (StatusCode::FORBIDDEN, Json(err)).into_response();
             }
@@ -211,9 +212,49 @@ pub async fn start_registration(
     })).into_response()
 }
 
+/// Creates a user row. The initial bootstrap admin is active immediately; other registrations
+/// stay inactive until approved. The bootstrap admin is created under a transaction-scoped
+/// advisory lock and only while `admin_users` is empty, so concurrent bootstrap ceremonies
+/// create at most one. Returns `Ok(None)` if the system is already initialized.
+async fn insert_user(
+    pool: &sqlx::PgPool,
+    username: &str,
+    first_name: Option<&str>,
+    last_name: Option<&str>,
+    department: Option<&str>,
+    is_bootstrap: bool,
+) -> Result<Option<i32>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    if is_bootstrap {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('mitm_bootstrap_admin'))").execute(&mut *tx).await?;
+        let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM admin_users").fetch_one(&mut *tx).await?;
+        if user_count > 0 {
+            return Ok(None);
+        }
+    }
+    let uid: i32 = sqlx::query_scalar(
+        r#"
+        INSERT INTO admin_users (username, password_hash, first_name, last_name, department, is_active)
+        VALUES ($1, 'webauthn_passkey', $2, $3, $4, $5)
+        RETURNING id
+        "#
+    )
+    .bind(username)
+    .bind(first_name)
+    .bind(last_name)
+    .bind(department)
+    .bind(is_bootstrap)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Some(uid))
+}
+
 // POST /api/v1/auth/webauthn/register/finish
 pub async fn finish_registration(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
     Json(payload): Json<FinishRegistrationReq>,
 ) -> Response {
     let repo = match state.repo.get() {
@@ -285,34 +326,22 @@ pub async fn finish_registration(
     .await
     .unwrap_or(None);
 
-    let (user_id, is_new_user) = if let Some((uid, _)) = existing_user {
-        (uid, false)
-    } else {
-        // Initial Bootstrap Admin is immediately is_active=true; standard new user registration is is_active=false
-        let is_active = is_bootstrap;
-
-        let uid: i32 = match sqlx::query_scalar(
-            r#"
-            INSERT INTO admin_users (username, password_hash, first_name, last_name, department, is_active)
-            VALUES ($1, 'webauthn_passkey', $2, $3, $4, $5)
-            RETURNING id
-            "#
-        )
-        .bind(username)
-        .bind(first_name)
-        .bind(last_name)
-        .bind(department)
-        .bind(is_active)
-        .fetch_one(&repo.pool)
-        .await {
-            Ok(id) => id,
+    // A bootstrap ceremony never attaches to an existing user: it only succeeds while the system is uninitialized.
+    let (user_id, is_new_user) = match existing_user {
+        Some((uid, _)) if !is_bootstrap => (uid, false),
+        _ => match insert_user(&repo.pool, username, first_name, last_name, department, is_bootstrap).await {
+            Ok(Some(uid)) => (uid, true),
+            Ok(None) => {
+                let _ = sqlx::query("DELETE FROM webauthn_states WHERE id = $1").bind(payload.ceremony_id).execute(&repo.pool).await;
+                let err = ErrorResponse { errors: vec![JsonApiError { status: "409".into(), title: "Conflict".into(), detail: Some("System is already initialized.".into()) }] };
+                return (StatusCode::CONFLICT, Json(err)).into_response();
+            }
             Err(e) => {
                 log::error!("Failed to insert user {}: {}", username, e);
                 let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(e.to_string()) }] };
                 return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
             }
-        };
-        (uid, true)
+        },
     };
 
     // If bootstrap, assign ADMIN role
@@ -377,13 +406,14 @@ pub async fn finish_registration(
         let now = Utc::now();
         let expires_at = now + Duration::hours(24);
         let _ = sqlx::query(
-            "INSERT INTO user_sessions (session_token, os_user, created_at, expires_at, last_active_at) VALUES ($1, $2, $3, $4, $5)"
+            "INSERT INTO user_sessions (session_token, os_user, created_at, expires_at, last_active_at, client_ip) VALUES ($1, $2, $3, $4, $5, $6)"
         )
         .bind(token_uuid)
         .bind(username)
         .bind(now)
         .bind(expires_at)
         .bind(now)
+        .bind(auth_guard::client_ip(&headers, peer.as_ref(), state.trust_proxy_headers).map(|ip| ip.to_string()))
         .execute(&repo.pool)
         .await;
 
@@ -511,6 +541,8 @@ pub async fn start_login(
 // POST /api/v1/auth/webauthn/login/finish
 pub async fn finish_login(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
     Json(payload): Json<FinishLoginReq>,
 ) -> Response {
     let repo = match state.repo.get() {
@@ -593,13 +625,14 @@ pub async fn finish_login(
     let now = Utc::now();
     let expires_at = now + Duration::hours(24);
     let _ = sqlx::query(
-        "INSERT INTO user_sessions (session_token, os_user, created_at, expires_at, last_active_at) VALUES ($1, $2, $3, $4, $5)"
+        "INSERT INTO user_sessions (session_token, os_user, created_at, expires_at, last_active_at, client_ip) VALUES ($1, $2, $3, $4, $5, $6)"
     )
     .bind(token_uuid)
     .bind(username)
     .bind(now)
     .bind(expires_at)
     .bind(now)
+    .bind(auth_guard::client_ip(&headers, peer.as_ref(), state.trust_proxy_headers).map(|ip| ip.to_string()))
     .execute(&repo.pool)
     .await;
 

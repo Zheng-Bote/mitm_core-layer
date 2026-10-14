@@ -1,6 +1,6 @@
 [package]
 name = "mitm-http-server"
-version = "1.8.0"
+version = "2.0.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "MitM HTTP server (Start-Programm) - core layer"
@@ -31,3 +31,4 @@ casbin = { version = "2.20.0", default-features = false, features = ["runtime-to
 sqlx-adapter = { version = "=1.2.0", default-features = false, features = ["postgres", "runtime-tokio-rustls"] }
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
 openssl = { version = "0.10", features = ["vendored"] }
+zeroize = "1.8"

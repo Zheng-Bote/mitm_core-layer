@@ -22,6 +22,7 @@ C4Component
         Component(db_pool, "DB Manager", "sqlx", "PostgreSQL connection pool manager")
         Component(ipc_client, "IPC Client", "Unix Domain Sockets", "Communicates with IAM and Scheduler")
         
+        Component(h_auth, "Auth Handler", "Rust, webauthn-rs", "WebAuthn ceremonies, sessions, rate limiting")
         Component(h_jobs, "Jobs Handler", "Rust", "JSON:API endpoints for jobs")
         Component(h_rbac, "RBAC Handler", "Rust", "JSON:API endpoints for roles & users")
         Component(h_dlq, "DLQ Handler", "Rust", "JSON:API endpoints for Dead Letter Queue")
@@ -30,6 +31,7 @@ C4Component
 
     Rel(cpp_frontend, router, "Makes HTTPS requests to", "JSON/REST")
     
+    Rel(router, h_auth, "Routes to")
     Rel(router, h_jobs, "Routes to")
     Rel(router, h_rbac, "Routes to")
     Rel(router, h_dlq, "Routes to")
@@ -38,6 +40,7 @@ C4Component
     Rel(h_jobs, ipc_client, "Triggers actions via")
     Rel(h_rbac, ipc_client, "Triggers actions via")
     
+    Rel(h_auth, db_pool, "Reads/Writes via")
     Rel(h_jobs, db_pool, "Reads/Writes via")
     Rel(h_rbac, db_pool, "Reads/Writes via")
     Rel(h_dlq, db_pool, "Reads/Writes via")
@@ -50,11 +53,33 @@ C4Component
 
 ## Authentication & WebAuthn
 - **WebAuthn FIDO2 / Passkeys**: Provides Relying Party ceremony endpoints under `/api/v1/auth/webauthn/*` (`register/start`, `register/finish`, `login/start`, `login/finish`) and `/api/v1/auth/bootstrap/status`.
+- **Passkey-only Sessions**: Session tokens are issued only after a server-verified WebAuthn ceremony (`login/finish`, or `register/finish` for the bootstrap administrator). There is no password- or username-only login.
+- **Rate Limiting**: The public WebAuthn and bootstrap endpoints accept 20 requests per minute per client IP; excess requests receive `429 Too Many Requests`.
+- **Client IP**: Sessions store the client IP taken from the TCP connection, or from the rightmost `X-Forwarded-For` entry when `MITM_TRUST_PROXY_HEADERS=true`. Client-supplied IPs in request payloads are not accepted.
 - **RBAC & Trust Proxy**: Enforces role memberships and integrates with the IAM microservice via Unix Domain Sockets.
+
+### Initial Administrator (Bootstrap)
+1. Set `INITIAL_ADMIN_TOKEN` (at least 32 characters, e.g. from AWS Secrets Manager) in the ECS task definition. If no user exists and the token is missing or too short, the server logs a `FATAL` error and exits (the IAM and Scheduler child processes are stopped as well).
+2. Start the system. `GET /api/v1/auth/bootstrap/status` returns `bootstrap_required: true`.
+3. Register the first administrator in the Admin Frontend with a passkey and the bootstrap token. The account is active immediately and receives the `ADMIN` role.
+4. Further users register themselves (inactive until approved) or are managed by administrators. Once a user exists, the bootstrap path is closed and the token is no longer used; it may be removed from the task definition.
+
+Concurrent bootstrap ceremonies create at most one administrator; later attempts receive `409 Conflict`.
+
+### Running behind AWS ALB
+An ALB terminates the client connection, so the server only sees the ALB's private IP as peer address. Set `MITM_TRUST_PROXY_HEADERS=true` so the client IP is taken from the rightmost `X-Forwarded-For` entry, which the ALB appends. Requirements:
+- The ECS task's security group allows inbound traffic only from the ALB.
+- The ALB attribute `routing.http.xff_header_processing.mode` is `append` (default).
+
+Leave the variable unset when the server is reachable directly, otherwise clients can spoof their IP and bypass the rate limit.
+
+### Upgrading from 1.x
+`POST /api/v1/auth/session` was removed. Clients must authenticate via the WebAuthn login ceremony (see [API v1 Documentation](./docs/api/api_v1.md)).
 
 ## Configuration
 
-- `INITIAL_ADMIN_TOKEN` (optional): Secret bootstrap token for registering the initial active administrator account.
+- `INITIAL_ADMIN_TOKEN` (required while no user exists): Secret bootstrap token (at least 32 characters) for registering the initial active administrator account. If no user exists and the token is missing or too short, the server logs an error and exits.
+- `MITM_TRUST_PROXY_HEADERS` (optional, default `false`): Take the client IP from the rightmost `X-Forwarded-For` entry. Enable only behind a load balancer (e.g. AWS ALB) that sets this header.
 - `MITM_DB_URL` (optional): PostgreSQL Connection String.
 - `IAM_SOCKET_PATH` (optional): Path to the IAM UDS.
 - `SCHEDULER_SOCKET_PATH` (optional): Path to the Scheduler UDS.

@@ -9,6 +9,7 @@ pub mod config;
 pub mod iam;
 pub mod auth;
 pub mod webauthn;
+pub mod auth_guard;
 
 pub fn routes(state: AppState) -> Router<AppState> {
     let authz_layer = middleware::from_fn_with_state(state.clone(), crate::handlers::authz_middleware);
@@ -22,8 +23,10 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .nest("/iam", iam::routes())
         .layer(authz_layer);
 
+    let rate_limit_layer = middleware::from_fn_with_state(state.clone(), auth_guard::rate_limit_middleware);
+
     let api_v1_router = Router::new()
-        .nest("/auth", auth::routes().merge(webauthn::routes()))
+        .nest("/auth", auth::routes().merge(webauthn::routes().route_layer(rate_limit_layer)))
         .nest("/system", system::routes())
         .merge(protected);
         
