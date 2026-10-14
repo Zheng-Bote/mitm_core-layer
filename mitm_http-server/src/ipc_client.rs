@@ -49,8 +49,7 @@ pub async fn auth_middleware(
     
     let path = req.uri().path();
     // Allow public API endpoints without auth
-    if path.starts_with("/api/v1/auth/session") 
-        || path.starts_with("/api/v1/auth/webauthn") 
+    if path.starts_with("/api/v1/auth/webauthn") 
         || path.starts_with("/api/v1/auth/bootstrap") 
         || path.starts_with("/api/v1/system/info") 
         || path.starts_with("/api/v1/system/time") 

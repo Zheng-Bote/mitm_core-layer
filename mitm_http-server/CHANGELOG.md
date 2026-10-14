@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-10-14
+
+### Removed
+- **BREAKING: `POST /api/v1/auth/session`**: The endpoint issued a session for any client-supplied `os_user` without verification. Sessions are now issued exclusively after a WebAuthn ceremony (`/api/v1/auth/webauthn/login/finish`, or `register/finish` for the bootstrap administrator).
+
+### Security
+- **Mandatory Bootstrap Token**: If no user exists at startup, `INITIAL_ADMIN_TOKEN` must be set with at least 32 characters; otherwise the server logs an error and exits. The built-in fallback token was removed and the token is compared in constant time.
+- **Single Bootstrap Administrator**: Bootstrap administrator creation is serialized with a PostgreSQL advisory lock; concurrent or repeated bootstrap ceremonies (including for an existing username) are rejected with `409 Conflict`.
+- **Rate Limiting**: `/api/v1/auth/webauthn/*` and `/api/v1/auth/bootstrap/*` are limited to 20 requests per minute per client IP (`429 Too Many Requests`).
+- **Server-side Client IP**: WebAuthn-issued sessions store the client IP from the TCP peer address, or from the rightmost `X-Forwarded-For` entry when `MITM_TRUST_PROXY_HEADERS=true`.
+
 ## [1.8.0] - 2026-10-12
 
 ### Added

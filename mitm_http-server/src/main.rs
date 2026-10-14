@@ -121,6 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|e| panic!("Failed to spawn Scheduler child process from {:?}: {}", scheduler_path, e));
 
     let repo_cell = std::sync::Arc::new(tokio::sync::OnceCell::new());
+    // Fatal startup errors detected after DB initialization terminate the supervisor.
+    let (fatal_tx, mut fatal_rx) = tokio::sync::mpsc::channel::<()>(1);
     let handle = axum_server::Handle::new();
     let handle_clone = handle.clone();
 
@@ -149,6 +151,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         log::info!("Database initialized successfully. 503 Middleware lifted!");
                                         let success_msg = format!("Starting {} (v{})", APP_NAME, VERSION);
                                         let _ = repo_cell_for_uds.get().unwrap().log_system("INFO", "http-server", &success_msg).await;
+
+                                        // Without any user the system can only be bootstrapped with a valid INITIAL_ADMIN_TOKEN.
+                                        let user_count: Result<i64, _> = sqlx::query_scalar("SELECT COUNT(*) FROM admin_users")
+                                            .fetch_one(&repo_cell_for_uds.get().unwrap().pool)
+                                            .await;
+                                        let fatal_msg = match user_count {
+                                            Ok(0) if handlers::api_v1::auth_guard::bootstrap_token().is_none() => Some(format!(
+                                                "FATAL: No administrator exists and INITIAL_ADMIN_TOKEN is not set or shorter than {} characters. Set INITIAL_ADMIN_TOKEN to bootstrap the initial administrator.",
+                                                handlers::api_v1::auth_guard::MIN_BOOTSTRAP_TOKEN_LEN
+                                            )),
+                                            Ok(_) => None,
+                                            Err(e) => Some(format!("FATAL: Failed to check for existing administrators: {}", e)),
+                                        };
+                                        if let Some(msg) = fatal_msg {
+                                            log::error!("{}", msg);
+                                            let _ = repo_cell_for_uds.get().unwrap().log_system("ERROR", "http-server", &msg).await;
+                                            let _ = fatal_tx.send(()).await;
+                                            return;
+                                        }
                                         
                                         // Build true app state with the correct config
 
@@ -228,6 +249,8 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                              webauthn,
                                              // Serialized origin (scheme://host[:port]) without the trailing slash `Url` adds.
                                              webauthn_origin: rp_origin.origin().ascii_serialization(),
+                                             trust_proxy_headers: std::env::var("MITM_TRUST_PROXY_HEADERS").map(|v| v.eq_ignore_ascii_case("true")).unwrap_or(false),
+                                             auth_rate_limiter: std::sync::Arc::new(handlers::api_v1::auth_guard::RateLimiter::default()),
                                          };
 
                                         
@@ -258,7 +281,7 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                                     .unwrap_or_else(|e| panic!("Failed to load TLS certificates: {}", e));
                                                 let _ = axum_server::bind_rustls(real_addr, tls_config)
                                                     .handle(handle_c)
-                                                    .serve(app_clone.into_make_service())
+                                                    .serve(app_clone.into_make_service_with_connect_info::<std::net::SocketAddr>())
                                                     .await;
                                             });
                                         } else {
@@ -266,7 +289,7 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                             tokio::spawn(async move {
                                                 let _ = axum_server::bind(real_addr)
                                                     .handle(handle_c)
-                                                    .serve(app_clone.into_make_service())
+                                                    .serve(app_clone.into_make_service_with_connect_info::<std::net::SocketAddr>())
                                                     .await;
                                             });
                                         }
@@ -306,6 +329,11 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
             std::future::pending::<()>().await;
         } => {
             0
+        },
+        // Fatal startup error (e.g. missing bootstrap token). `None` (sender dropped after a
+        // successful startup) does not match, which disables this branch.
+        Some(()) = fatal_rx.recv() => {
+            1
         },
         // Wait on IAM process crash
         status = iam_child.wait() => {

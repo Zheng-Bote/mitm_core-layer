@@ -2,26 +2,13 @@ use axum::{
     extract::{State, Json},
     http::{StatusCode, HeaderMap, header::AUTHORIZATION},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
     Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use uuid::Uuid;
 use chrono::{Utc, Duration};
 use crate::handlers::{AppState, ErrorResponse, JsonApiError};
-
-#[derive(Deserialize)]
-pub struct SessionRequest {
-    pub os_user: String,
-    #[allow(dead_code)]
-    pub token: Option<String>,
-    pub client_ip: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct SessionResponse {
-    pub session_token: String,
-}
 
 #[derive(Serialize)]
 pub struct RolesResponse {
@@ -31,70 +18,6 @@ pub struct RolesResponse {
     pub last_name: Option<String>,
     pub is_active: bool,
     pub client_ip: Option<String>,
-}
-
-// Handler for POST /api/user/v1/session
-pub async fn create_session(
-    State(state): State<AppState>,
-    Json(payload): Json<SessionRequest>,
-) -> Response {
-    if let Some(repo) = state.repo.get() {
-        match sqlx::query_scalar::<_, bool>("SELECT is_active FROM admin_users WHERE username = $1")
-            .bind(&payload.os_user)
-            .fetch_optional(&repo.pool)
-            .await
-        {
-            Ok(Some(active)) => {
-                if !active {
-                    let err = ErrorResponse { errors: vec![JsonApiError { status: "403".into(), title: "Forbidden".into(), detail: Some("Login Rejected: User account is inactive.".into()) }] };
-                    return (StatusCode::FORBIDDEN, Json(err)).into_response();
-                }
-            }
-            Ok(None) => {}
-            Err(e) => log::error!("DB error checking is_active: {}", e),
-        }
-    }
-    
-    let token_uuid = Uuid::new_v4();
-    let now = Utc::now();
-    let expires_at = now + Duration::hours(24);
-    
-    let result = sqlx::query(
-        r#"
-        INSERT INTO user_sessions (session_token, os_user, created_at, expires_at, last_active_at, client_ip)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        "#
-    )
-    .bind(token_uuid)
-    .bind(&payload.os_user)
-    .bind(now)
-    .bind(expires_at)
-    .bind(now)
-    .bind(&payload.client_ip)
-    .execute(&state.repo.get().unwrap().pool)
-    .await;
-
-    match result {
-        Ok(_) => {
-            if let Some(repo) = state.repo.get() {
-                let details = serde_json::json!({
-                    "action": "login",
-                    "status": "success"
-                });
-                let _ = repo.log_admin(&payload.os_user, "USER_LOGIN", details).await;
-            }
-
-            let response = SessionResponse {
-                session_token: token_uuid.to_string(),
-            };
-            (StatusCode::CREATED, Json(response)).into_response()
-        }
-        Err(e) => {
-            log::error!("Failed to create user session: {}", e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some("Database error".into()) }] };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
-    }
 }
 
 // Handler for GET /api/user/v1/roles
@@ -223,6 +146,5 @@ pub async fn get_roles(
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/session", post(create_session))
         .route("/me", get(get_roles))
 }

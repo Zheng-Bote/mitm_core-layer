@@ -65,13 +65,15 @@ The configuration loader follows a strict priority cascade to ensure flexibility
 - `MITM_UPLOAD_DIR` (String) - Path for file uploads
 - `MITM_SOCKET_DIR` (String) - Path for IPC UDS sockets
 - `MITM_ADMINS` (String) - Comma-separated list of initial admin usernames
-- `INITIAL_ADMIN_TOKEN` (String) - Secret one-time bootstrap token required to register and activate the initial administrator account via WebAuthn
+- `INITIAL_ADMIN_TOKEN` (String) - Secret bootstrap token (at least 32 characters) required to register and activate the initial administrator account via WebAuthn. Mandatory while no user exists; otherwise the http-server logs an error and exits
+- `MITM_TRUST_PROXY_HEADERS` (Boolean, default `false`) - Take the client IP from the rightmost `X-Forwarded-For` entry; enable only behind a load balancer such as AWS ALB
 
 **Example (docker-compose.yml / ECS Task Definition):**
 ```yaml
 environment:
   - MASTER_KEY=my-super-secret-key
   - INITIAL_ADMIN_TOKEN=adm_sec_9f7d24a8e61c4b0b925f38e0c7a15d862e49c81b9e0743b1a2d5f8c634e0a7b9
+  - MITM_TRUST_PROXY_HEADERS=true   # only behind AWS ALB
   - MITM_DB_HOST=postgres.internal.net
   - MITM_DB_PORT=5432
   - MITM_DB_USER=mitm_admin

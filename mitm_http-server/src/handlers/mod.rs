@@ -25,6 +25,9 @@ pub struct AppState {
     /// Origin that `webauthn` validates `clientDataJSON.origin` against. Returned to native
     /// clients (which have no browser origin) so they can build matching client data.
     pub webauthn_origin: String,
+    /// Take the client IP from `X-Forwarded-For` (set `MITM_TRUST_PROXY_HEADERS=true` behind a load balancer).
+    pub trust_proxy_headers: bool,
+    pub auth_rate_limiter: Arc<api_v1::auth_guard::RateLimiter>,
 }
 
 #[derive(serde::Serialize)]
