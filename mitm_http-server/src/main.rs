@@ -238,6 +238,10 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
 
                                         let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or_else(|_| "localhost".to_string());
                                         let rp_origin_str = std::env::var("WEBAUTHN_RP_ORIGIN").unwrap_or_else(|_| format!("http://localhost:{}", parsed_cfg.http_port));
+                                        if std::env::var("WEBAUTHN_RP_ID").is_err() || std::env::var("WEBAUTHN_RP_ORIGIN").is_err() {
+                                            log::warn!("WEBAUTHN_RP_ID / WEBAUTHN_RP_ORIGIN not set; passkeys only work for a frontend served from {}", rp_origin_str);
+                                        }
+                                        log::info!("WebAuthn relying party: id={}, origin={}", rp_id, rp_origin_str);
                                         let rp_origin = webauthn_rs::prelude::Url::parse(&rp_origin_str).unwrap_or_else(|_| webauthn_rs::prelude::Url::parse("http://localhost:8080").unwrap());
                                         let webauthn_builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin).expect("Invalid WebAuthn config");
                                         let webauthn = std::sync::Arc::new(webauthn_builder.build().expect("Failed to build WebAuthn"));

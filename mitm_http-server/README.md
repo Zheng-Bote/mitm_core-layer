@@ -73,6 +73,8 @@ An ALB terminates the client connection, so the server only sees the ALB's priva
 
 Leave the variable unset when the server is reachable directly, otherwise clients can spoof their IP and bypass the rate limit.
 
+Set `WEBAUTHN_RP_ID` and `WEBAUTHN_RP_ORIGIN` to the public host name and origin of the web frontend (e.g. `mitm.example.com` / `https://mitm.example.com`). With the defaults (`localhost`) the browser refuses passkeys on any other address ("WebAuthn RP ID / origin mismatch"). WebAuthn requires HTTPS and a DNS name, so terminate TLS on the ALB (ACM certificate) and do not use IP addresses.
+
 ### Upgrading from 1.x
 `POST /api/v1/auth/session` was removed. Clients must authenticate via the WebAuthn login ceremony (see [API v1 Documentation](./docs/api/api_v1.md)).
 
@@ -80,6 +82,8 @@ Leave the variable unset when the server is reachable directly, otherwise client
 
 - `INITIAL_ADMIN_TOKEN` (required while no user exists): Secret bootstrap token (at least 32 characters) for registering the initial active administrator account. If no user exists and the token is missing or too short, the server logs an error and exits.
 - `MITM_TRUST_PROXY_HEADERS` (optional, default `false`): Take the client IP from the rightmost `X-Forwarded-For` entry. Enable only behind a load balancer (e.g. AWS ALB) that sets this header.
+- `WEBAUTHN_RP_ID` (default `localhost`): WebAuthn Relying Party ID, the host name of the web frontend without scheme and port. Registered passkeys are bound to it.
+- `WEBAUTHN_RP_ORIGIN` (default `http://localhost:<MITM_HTTP_PORT>`): Exact browser origin of the web frontend (`scheme://host[:port]`). Its host must equal `WEBAUTHN_RP_ID` or be a subdomain of it. Local development with `ng serve`: `WEBAUTHN_RP_ID=localhost`, `WEBAUTHN_RP_ORIGIN=http://localhost:4200`.
 - `MITM_DB_URL` (optional): PostgreSQL Connection String.
 - `IAM_SOCKET_PATH` (optional): Path to the IAM UDS.
 - `SCHEDULER_SOCKET_PATH` (optional): Path to the Scheduler UDS.

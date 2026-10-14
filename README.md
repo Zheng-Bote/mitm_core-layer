@@ -67,6 +67,16 @@ The configuration loader follows a strict priority cascade to ensure flexibility
 - `MITM_ADMINS` (String) - Comma-separated list of initial admin usernames
 - `INITIAL_ADMIN_TOKEN` (String) - Secret bootstrap token (at least 32 characters) required to register and activate the initial administrator account via WebAuthn. Mandatory while no user exists; otherwise the http-server logs an error and exits
 - `MITM_TRUST_PROXY_HEADERS` (Boolean, default `false`) - Take the client IP from the rightmost `X-Forwarded-For` entry; enable only behind a load balancer such as AWS ALB
+- `WEBAUTHN_RP_ID` (String, default `localhost`) - WebAuthn Relying Party ID: the host name (no scheme, no port) under which users open the web frontend, e.g. `mitm.example.com`. Passkeys are bound to it; changing it invalidates all registered passkeys
+- `WEBAUTHN_RP_ORIGIN` (String, default `http://localhost:<MITM_HTTP_PORT>`) - Exact origin of the web frontend as seen in the browser address bar (`scheme://host[:port]`, no trailing slash), e.g. `https://mitm.example.com`. Its host must equal `WEBAUTHN_RP_ID` or be a subdomain of it
+
+> **WebAuthn in AWS:** Both variables must be set to the public URL of the web frontend (the ALB / Route 53 / CloudFront host), not to `localhost` and not to the container address. Otherwise the browser rejects the passkey prompt with "Passkeys are not available on this address (WebAuthn RP ID / origin mismatch)". Browsers allow WebAuthn only over HTTPS (except on `localhost`) and not on IP addresses, so the frontend must be reached via a DNS name with a TLS certificate (e.g. ACM on the ALB). The http-server logs the active values at startup (`WebAuthn relying party: id=…, origin=…`).
+
+**Example (local development, frontend via `ng serve`):**
+```bash
+export WEBAUTHN_RP_ID=localhost
+export WEBAUTHN_RP_ORIGIN=http://localhost:4200
+```
 
 **Example (docker-compose.yml / ECS Task Definition):**
 ```yaml
@@ -74,6 +84,8 @@ environment:
   - MASTER_KEY=my-super-secret-key
   - INITIAL_ADMIN_TOKEN=adm_sec_9f7d24a8e61c4b0b925f38e0c7a15d862e49c81b9e0743b1a2d5f8c634e0a7b9
   - MITM_TRUST_PROXY_HEADERS=true   # only behind AWS ALB
+  - WEBAUTHN_RP_ID=mitm.example.com
+  - WEBAUTHN_RP_ORIGIN=https://mitm.example.com
   - MITM_DB_HOST=postgres.internal.net
   - MITM_DB_PORT=5432
   - MITM_DB_USER=mitm_admin

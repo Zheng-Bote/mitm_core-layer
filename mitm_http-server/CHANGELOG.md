@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-10-14
+
+### Added
+- **WebAuthn Startup Logging**: The active Relying Party ID and origin are logged at startup; a warning is logged when `WEBAUTHN_RP_ID` / `WEBAUTHN_RP_ORIGIN` are not set and the `localhost` defaults apply.
+
+### Documentation
+- Documented `WEBAUTHN_RP_ID` and `WEBAUTHN_RP_ORIGIN` (local development and AWS ALB deployment) in the READMEs.
+
 ## [2.0.1] - 2026-10-14
 
 ### Added
