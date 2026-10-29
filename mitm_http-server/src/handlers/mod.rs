@@ -28,6 +28,8 @@ pub struct AppState {
     /// Take the client IP from `X-Forwarded-For` (set `MITM_TRUST_PROXY_HEADERS=true` behind a load balancer).
     pub trust_proxy_headers: bool,
     pub auth_rate_limiter: Arc<api_v1::auth_guard::RateLimiter>,
+    /// OIDC sign-in; `None` when the `OIDC_*` environment variables are not set.
+    pub oidc: Option<Arc<api_v1::oidc::Oidc>>,
 }
 
 #[derive(serde::Serialize)]

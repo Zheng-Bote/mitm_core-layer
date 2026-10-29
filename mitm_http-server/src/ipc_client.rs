@@ -51,6 +51,7 @@ pub async fn auth_middleware(
     // Allow public API endpoints without auth
     if path.starts_with("/api/v1/auth/webauthn") 
         || path.starts_with("/api/v1/auth/bootstrap") 
+        || path.starts_with("/api/v1/auth/oidc")
         || path.starts_with("/api/v1/system/info") 
         || path.starts_with("/api/v1/system/time") 
     {
