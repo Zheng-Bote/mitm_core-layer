@@ -69,6 +69,10 @@ The configuration loader follows a strict priority cascade to ensure flexibility
 - `MITM_TRUST_PROXY_HEADERS` (Boolean, default `false`) - Take the client IP from the rightmost `X-Forwarded-For` entry; enable only behind a load balancer such as AWS ALB
 - `WEBAUTHN_RP_ID` (String, default `localhost`) - WebAuthn Relying Party ID: the host name (no scheme, no port) under which users open the web frontend, e.g. `mitm.example.com`. Passkeys are bound to it; changing it invalidates all registered passkeys
 - `WEBAUTHN_RP_ORIGIN` (String, default `http://localhost:<MITM_HTTP_PORT>`) - Exact origin of the web frontend as seen in the browser address bar (`scheme://host[:port]`, no trailing slash), e.g. `https://mitm.example.com`. Its host must equal `WEBAUTHN_RP_ID` or be a subdomain of it
+- `OIDC_ISSUER` (String, optional) - Issuer of the OAuth2/OIDC identity provider, exactly as published in its discovery document (`<issuer>/.well-known/openid-configuration`), including an explicit port such as `:443` if the IdP publishes one. Together with `OIDC_CLIENT_ID` and `OIDC_REDIRECT_URI` it enables "Sign in with SSO"
+- `OIDC_CLIENT_ID` (String, optional) - OAuth client ID registered at the IdP
+- `OIDC_CLIENT_SECRET` (String, optional) - Client secret (`client_secret_basic`); leave unset for a public client
+- `OIDC_REDIRECT_URI` (String, optional) - Redirect URI registered at the IdP; must point to `/api/v1/auth/oidc/callback` of the public frontend URL, e.g. `https://mitm.example.com/api/v1/auth/oidc/callback`
 
 > **WebAuthn in AWS:** Both variables must be set to the public URL of the web frontend (the ALB / Route 53 / CloudFront host), not to `localhost` and not to the container address. Otherwise the browser rejects the passkey prompt with "Passkeys are not available on this address (WebAuthn RP ID / origin mismatch)". Browsers allow WebAuthn only over HTTPS (except on `localhost`) and not on IP addresses, so the frontend must be reached via a DNS name with a TLS certificate (e.g. ACM on the ALB). The http-server logs the active values at startup (`WebAuthn relying party: id=…, origin=…`).
 

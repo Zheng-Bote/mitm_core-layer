@@ -5,7 +5,7 @@ The v1 API introduces a robust, resource-oriented RESTful architecture with Dyna
 > Applies to `mitm_http-server` **2.0.0** and later. Breaking change in 2.0.0: `POST /api/v1/auth/session` was removed; sessions are issued only by the WebAuthn ceremonies (see [2.7 Auth API](#27-auth-api)).
 
 ## 1. Authentication (AuthN) & Authorization (AuthZ)
-All endpoints under `/api/v1/` (except public endpoints like `/api/v1/auth/webauthn/*`, `/api/v1/auth/bootstrap/status`, `/api/v1/system/info`, `/api/v1/system/time`) are guarded by two layers of middleware:
+All endpoints under `/api/v1/` (except public endpoints like `/api/v1/auth/webauthn/*`, `/api/v1/auth/oidc/*`, `/api/v1/auth/bootstrap/status`, `/api/v1/system/info`, `/api/v1/system/time`) are guarded by two layers of middleware:
 - **AuthN Middleware:** Validates the session with the IAM server via UDS, injecting an `AuthResponse` containing the user's roles.
 - **AuthZ Middleware:** Uses Casbin to enforce dynamic RBAC policies stored in PostgreSQL. It evaluates the user's roles against the HTTP Path and HTTP Method. If denied, it yields `403 Forbidden`.
 
@@ -100,8 +100,8 @@ Identity & Access Management (Users & Roles).
 | `/api/v1/iam/assign-role` | POST | ADMIN |
 
 ### 2.7 Auth API
-Endpoints for passkey (WebAuthn) authentication and the currently authenticated user's session.
-Session tokens are issued only after a successful WebAuthn ceremony (`login/finish`, or `register/finish` for the bootstrap administrator).
+Endpoints for passkey (WebAuthn) and OAuth2/OIDC authentication and the currently authenticated user's session.
+Session tokens are issued only after a successful WebAuthn ceremony (`login/finish`, or `register/finish` for the bootstrap administrator) or a verified OIDC login (`oidc/callback`).
 
 | API-Endpoint | Method | required role |
 | --- | --- | --- |
@@ -110,9 +110,13 @@ Session tokens are issued only after a successful WebAuthn ceremony (`login/fini
 | `/api/v1/auth/webauthn/register/finish` | POST | None |
 | `/api/v1/auth/webauthn/login/start` | POST | None |
 | `/api/v1/auth/webauthn/login/finish` | POST | None |
+| `/api/v1/auth/oidc/config` | GET | None |
+| `/api/v1/auth/oidc/login` | GET | None (browser navigation) |
+| `/api/v1/auth/oidc/callback` | GET | None (IdP redirect URI) |
+| `/api/v1/auth/oidc/exchange` | POST | None |
 | `/api/v1/auth/me` | GET | Valid Session |
 
-- The public `/api/v1/auth/webauthn/*` and `/api/v1/auth/bootstrap/*` endpoints are rate-limited per client IP (20 requests per minute); excess requests receive `429 Too Many Requests` with a `Retry-After` header.
+- The public `/api/v1/auth/webauthn/*`, `/api/v1/auth/oidc/*` and `/api/v1/auth/bootstrap/*` endpoints are rate-limited per client IP (20 requests per minute); excess requests receive `429 Too Many Requests` with a `Retry-After` header.
 - The session's `client_ip` is determined server-side from the TCP peer address, or from the rightmost `X-Forwarded-For` entry when `MITM_TRUST_PROXY_HEADERS=true` (required behind a load balancer such as AWS ALB). A `client_ip` in a request payload is ignored.
 
 #### Login Flow
@@ -120,6 +124,28 @@ Session tokens are issued only after a successful WebAuthn ceremony (`login/fini
 2. The client signs the challenge with its passkey (FIDO2 security key or platform authenticator).
 3. `POST /api/v1/auth/webauthn/login/finish` with `{"ceremony_id": "...", "credential": {...}}` returns `{"session_token": "..."}`.
 4. Subsequent requests send `Authorization: Bearer <session_token>`. Sessions expire after 24 h (absolute) or 2 h without activity; `GET /api/v1/auth/me` keeps them alive.
+
+#### OIDC Login Flow
+Enabled when `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_REDIRECT_URI` are set; otherwise the OIDC endpoints answer `404` and `oidc/config` returns `{"enabled": false}`. The IdP must have `<public origin>/api/v1/auth/oidc/callback` registered as redirect URI.
+1. `GET /api/v1/auth/oidc/config` returns `{"enabled": true}`; the frontend shows "Sign in with SSO".
+2. The browser navigates to `GET /api/v1/auth/oidc/login`. The server stores `state`, `nonce` and the PKCE verifier (S256) for 10 minutes, sets the `__Host-mitm_oidc` cookie (`HttpOnly; Secure; SameSite=Lax`) and redirects to the IdP authorization endpoint (scopes `openid profile`).
+3. After login the IdP redirects to `GET /api/v1/auth/oidc/callback?code=…&state=…&iss=…`. The server consumes the login state (single use, must match the cookie), checks `iss` against `OIDC_ISSUER` (RFC 9207), redeems the code with the PKCE verifier and validates the ID token (signature, issuer, audience, expiry, nonce).
+4. The ID token `sub` must equal an existing, active `admin_users.username`; OIDC never creates users. The server issues a session (same lifetime as the WebAuthn login) and redirects to `/auth/callback?handoff=<id>`.
+5. `POST /api/v1/auth/oidc/exchange` with `{"handoff": "<id>"}` returns `{"session_token": "..."}`. The handoff id is single-use and expires after 60 seconds.
+
+IdP tokens are neither stored nor returned to the browser. Callback failures redirect to `/login?sso_error=<code>`:
+
+| `sso_error` | Cause |
+| --- | --- |
+| `invalid_state` | Missing cookie, unknown, expired or already used login state, or `state` mismatch |
+| `idp_error` | The IdP returned an error (e.g. login cancelled) or no code |
+| `invalid_issuer` | `iss` differs from `OIDC_ISSUER` |
+| `idp_unavailable` | Discovery failed or the IdP has no token endpoint |
+| `token_exchange_failed` | The token endpoint rejected the code (e.g. client authentication, expired code) |
+| `invalid_id_token` | Missing or invalid ID token |
+| `unknown_user` | `sub` is not a username in `admin_users` |
+| `inactive_user` | Account inactive (pending administrator approval) |
+| `server_error` | Database error |
 
 #### Bootstrap (no user exists)
 - `GET /api/v1/auth/bootstrap/status` returns `{"bootstrap_required": true}`.
@@ -136,6 +162,8 @@ Session tokens are issued only after a successful WebAuthn ceremony (`login/fini
 | `403` | `register/start` | Invalid `bootstrap_token` |
 | `403` | `login/start`, `login/finish` | Account inactive (pending administrator approval) |
 | `404` | `login/start` | User not found |
+| `401` | `oidc/exchange` | Handoff id invalid, expired or already used |
+| `404` | `oidc/*` | OIDC not configured |
 | `409` | `register/finish` | System already initialized (concurrent or repeated bootstrap) |
 | `429` | all public auth endpoints | Rate limit exceeded |
 

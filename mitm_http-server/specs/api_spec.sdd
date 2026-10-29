@@ -3,7 +3,8 @@ Purpose: Defines the API contracts and endpoints for the http-server.
 
 Must:
   All error responses MUST be strictly formatted as JSON:API error payloads (`{"errors": [{"status": "...", "title": "...", "detail": "..."}]}`). Plain-text error responses are forbidden.
-  Session tokens MUST be issued only by `/api/v1/auth/webauthn/login/finish` and by the bootstrap `/api/v1/auth/webauthn/register/finish`, as defined in /specs/features/webauthn-only-auth/webauthn-only-auth.sdd.
+  Session tokens MUST be issued only by `/api/v1/auth/webauthn/login/finish`, by the bootstrap `/api/v1/auth/webauthn/register/finish` and by `/api/v1/auth/oidc/callback`, as defined in /specs/features/webauthn-only-auth/webauthn-only-auth.sdd and /specs/features/oidc-authentication/oidc-authentication.sdd.
+  `/api/v1/auth/oidc/login` and `/api/v1/auth/oidc/callback` are browser navigation endpoints and answer with redirects; failures redirect to `/login?sso_error=<code>` instead of a JSON:API error.
   The `/api/v1/auth/webauthn/login/start` and `/api/v1/auth/webauthn/login/finish` endpoints MUST reject users whose `is_active` is false with 403 Forbidden.
   The `/api/v1/auth/me` endpoint MUST return `first_name`, `last_name`, `is_active`, and `client_ip`.
   The `/api/v1/auth/webauthn/register/start` and `/api/v1/auth/webauthn/login/start` endpoints MUST return `rp_origin`, the origin the server validates `clientDataJSON.origin` against, so native clients can build matching client data.

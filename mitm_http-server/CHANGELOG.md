@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-10-29
+
+### Added
+- **OIDC Sign-in**: OAuth2/OIDC authorization code flow with PKCE as an additional sign-in method next to WebAuthn. New public endpoints `GET /api/v1/auth/oidc/config`, `GET /api/v1/auth/oidc/login`, `GET /api/v1/auth/oidc/callback` (IdP redirect URI) and `POST /api/v1/auth/oidc/exchange`. Enabled via `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URI` and optional `OIDC_CLIENT_SECRET`.
+
+### Security
+- The ID token `sub` must match an existing, active `admin_users.username`; unknown and inactive users are rejected and logged to `admin_audit_logs` (`USER_LOGIN_OIDC`). OIDC never creates users.
+- Login state is single-use, bound to the browser by an `HttpOnly; Secure; SameSite=Lax` cookie, and the `iss` callback parameter is checked (RFC 9207). The session token reaches the SPA only through a single-use handoff id (60 s); IdP tokens are neither stored nor exposed.
+- The OIDC endpoints are rate-limited like the WebAuthn endpoints.
+
 ## [2.0.2] - 2026-10-14
 
 ### Added

@@ -246,6 +246,12 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                         let webauthn_builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin).expect("Invalid WebAuthn config");
                                         let webauthn = std::sync::Arc::new(webauthn_builder.build().expect("Failed to build WebAuthn"));
 
+                                        let oidc = handlers::api_v1::oidc::Oidc::from_env().map(std::sync::Arc::new);
+                                        match std::env::var("OIDC_ISSUER") {
+                                            Ok(issuer) if oidc.is_some() => log::info!("OIDC sign-in enabled: issuer={}", issuer),
+                                            _ => log::info!("OIDC sign-in disabled (OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_REDIRECT_URI not set)"),
+                                        }
+
                                         let app_state = handlers::AppState { 
                                              repo: repo_cell_for_uds.clone(), 
                                              config: std::sync::Arc::new(parsed_cfg.clone()),
@@ -255,6 +261,7 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                              webauthn_origin: rp_origin.origin().ascii_serialization(),
                                              trust_proxy_headers: std::env::var("MITM_TRUST_PROXY_HEADERS").map(|v| v.eq_ignore_ascii_case("true")).unwrap_or(false),
                                              auth_rate_limiter: std::sync::Arc::new(handlers::api_v1::auth_guard::RateLimiter::default()),
+                                             oidc,
                                          };
 
                                         
