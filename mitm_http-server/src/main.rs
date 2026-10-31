@@ -77,6 +77,12 @@ async fn readiness_middleware(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().filter_or("MITM_LOG_LEVEL", "info")).init();
 
+    // rustls is built with both `aws-lc-rs` (axum-server) and `ring` (reqwest/openidconnect),
+    // so the process-level CryptoProvider must be selected explicitly before any TLS setup.
+    if rustls::crypto::aws_lc_rs::default_provider().install_default().is_err() {
+        log::warn!("A rustls CryptoProvider was already installed; keeping the existing one");
+    }
+
     let args: Vec<String> = env::args().collect();
     let config_param = args.get(1).map(|s| s.as_str());
     
