@@ -195,34 +195,38 @@ pub async fn bootstrap_admins(repo: &Repository, config: &DBConfig, kek: &[u8]) 
     };
 
     for admin_cfg in &config.admins {
-        let user_id = match repo.get_user_id(&admin_cfg.username).await {
+        let Some(username) = mitm_common::username::normalize(&admin_cfg.username) else {
+            log::error!("Skipping configured admin {:?}: username must match ^[A-Z0-9._-]{{1,64}}$", admin_cfg.username);
+            continue;
+        };
+        let user_id = match repo.get_user_id(&username).await {
             Ok(Some(id)) => id,
             Ok(None) => {
-                match repo.create_user(&admin_cfg.username, &admin_cfg.token).await {
+                match repo.create_user(&username, &admin_cfg.token).await {
                     Ok(id) => {
-                        log::info!("Created initial admin user: {}", admin_cfg.username);
+                        log::info!("Created initial admin user: {}", username);
                         let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
                             .bind("system")
                             .bind("create_admin")
-                            .bind(serde_json::json!({"created_user": admin_cfg.username}))
+                            .bind(serde_json::json!({"created_user": username}))
                             .execute(&repo.pool)
                             .await;
                         id
                     }
                     Err(e) => {
-                        log::error!("Failed to create admin user {}: {}", admin_cfg.username, e);
+                        log::error!("Failed to create admin user {}: {}", username, e);
                         continue;
                     }
                 }
             }
             Err(e) => {
-                log::error!("Failed to get user {}: {}", admin_cfg.username, e);
+                log::error!("Failed to get user {}: {}", username, e);
                 continue;
             }
         };
 
         if let Err(e) = repo.assign_role(user_id, admin_role_id, kek).await {
-            log::error!("Failed to assign ADMIN role to user {}: {}", admin_cfg.username, e);
+            log::error!("Failed to assign ADMIN role to user {}: {}", username, e);
         }
     }
 }

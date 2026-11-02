@@ -279,6 +279,15 @@ pub async fn callback(
         }
     };
 
+    // The IdP may send the login ID in any case; match it in canonical form.
+    let subject = match mitm_common::username::normalize(&subject) {
+        Some(s) => s,
+        None => {
+            let _ = repo.log_admin(&subject, "USER_LOGIN_OIDC", serde_json::json!({ "status": "rejected", "reason": "invalid_username" })).await;
+            return fail("unknown_user");
+        }
+    };
+
     // Only known, active users may sign in; OIDC never creates users.
     let is_active: Option<bool> = sqlx::query_scalar("SELECT is_active FROM admin_users WHERE username = $1")
         .bind(&subject)

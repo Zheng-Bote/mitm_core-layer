@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-11-02
+### Fixed
+- **Case-insensitive usernames (mitm-2#29):** Configured admins (`MITM_ADMINS` / config file) are matched and seeded in the canonical uppercase form; invalid usernames are skipped with an error log.
+
 ## [1.4.0] - 2026-10-10
 ### Added
 - **RBAC Enhancements (Issue #53):** Included `get_user` method in `db.rs` to fetch user profile (`first_name`, `last_name`, `is_active`). Inactive users are now properly rejected during authentication.

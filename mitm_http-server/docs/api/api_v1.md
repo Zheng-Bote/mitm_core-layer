@@ -99,6 +99,11 @@ Identity & Access Management (Users & Roles).
 | `/api/v1/iam/roles` | GET | ADMIN |
 | `/api/v1/iam/assign-role` | POST | ADMIN |
 
+#### Usernames
+Usernames are case-insensitive. Every username received by the server (`POST /api/v1/iam/users`, `webauthn/register/start`, `webauthn/login/start`, the OIDC `sub` claim and configured admins) is trimmed and converted to uppercase; `q225265` and `Q225265` denote the same user `Q225265`. After this conversion a username must match `^[A-Z0-9._-]{1,64}$`.
+
+`POST /api/v1/iam/users` answers `201 Created`, `400 Bad Request` for an invalid username and `409 Conflict` if the username already exists (in any case).
+
 ### 2.7 Auth API
 Endpoints for passkey (WebAuthn) and OAuth2/OIDC authentication and the currently authenticated user's session.
 Session tokens are issued only after a successful WebAuthn ceremony (`login/finish`, or `register/finish` for the bootstrap administrator) or a verified OIDC login (`oidc/callback`).
@@ -130,7 +135,7 @@ Enabled when `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_REDIRECT_URI` are set; ot
 1. `GET /api/v1/auth/oidc/config` returns `{"enabled": true}`; the frontend shows "Sign in with SSO".
 2. The browser navigates to `GET /api/v1/auth/oidc/login`. The server stores `state`, `nonce` and the PKCE verifier (S256) for 10 minutes, sets the `__Host-mitm_oidc` cookie (`HttpOnly; Secure; SameSite=Lax`) and redirects to the IdP authorization endpoint (scopes `openid profile`).
 3. After login the IdP redirects to `GET /api/v1/auth/oidc/callback?code=…&state=…&iss=…`. The server consumes the login state (single use, must match the cookie), checks `iss` against `OIDC_ISSUER` (RFC 9207), redeems the code with the PKCE verifier and validates the ID token (signature, issuer, audience, expiry, nonce).
-4. The ID token `sub` must equal an existing, active `admin_users.username`; OIDC never creates users. The server issues a session (same lifetime as the WebAuthn login) and redirects to `/auth/callback?handoff=<id>`.
+4. The ID token `sub`, converted to uppercase, must equal an existing, active `admin_users.username`; OIDC never creates users. The server issues a session (same lifetime as the WebAuthn login) and redirects to `/auth/callback?handoff=<id>`.
 5. `POST /api/v1/auth/oidc/exchange` with `{"handoff": "<id>"}` returns `{"session_token": "..."}`. The handoff id is single-use and expires after 60 seconds.
 
 IdP tokens are neither stored nor returned to the browser. Callback failures redirect to `/login?sso_error=<code>`:
@@ -143,7 +148,7 @@ IdP tokens are neither stored nor returned to the browser. Callback failures red
 | `idp_unavailable` | Discovery failed or the IdP has no token endpoint |
 | `token_exchange_failed` | The token endpoint rejected the code (e.g. client authentication, expired code) |
 | `invalid_id_token` | Missing or invalid ID token |
-| `unknown_user` | `sub` is not a username in `admin_users` |
+| `unknown_user` | `sub` (uppercased) is not a username in `admin_users`, or does not match the username format |
 | `inactive_user` | Account inactive (pending administrator approval) |
 | `server_error` | Database error |
 
@@ -155,6 +160,7 @@ IdP tokens are neither stored nor returned to the browser. Callback failures red
 #### Error Responses
 | Status | Endpoint | Cause |
 | --- | --- | --- |
+| `400` | `register/start`, `login/start` | Username does not match `^[A-Z0-9._-]{1,64}$` (after uppercasing) |
 | `400` | `register/start` | `bootstrap_token` missing while no user exists |
 | `400` | `*/finish` | Ceremony expired or not found, registration verification failed |
 | `400` | `login/start` | No passkey registered for the user |

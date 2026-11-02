@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.5.0] - 2026-11-02
+### Added
+- **Canonical usernames (mitm-2#29):** `username::normalize` trims a username, converts ASCII letters to uppercase and accepts only `^[A-Z0-9._-]{1,64}$`.
+
 ## [1.4.0] - 2026-10-10
 ### Added
 - **RBAC Enhancements (Issue #53):** Added `first_name`, `last_name`, and `is_active` to `AuthResponse`, and `client_ip` to `AuthRequest`.
