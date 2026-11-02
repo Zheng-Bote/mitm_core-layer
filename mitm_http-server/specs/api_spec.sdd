@@ -7,4 +7,5 @@ Must:
   `/api/v1/auth/oidc/login` and `/api/v1/auth/oidc/callback` are browser navigation endpoints and answer with redirects; failures redirect to `/login?sso_error=<code>` instead of a JSON:API error.
   The `/api/v1/auth/webauthn/login/start` and `/api/v1/auth/webauthn/login/finish` endpoints MUST reject users whose `is_active` is false with 403 Forbidden.
   The `/api/v1/auth/me` endpoint MUST return `first_name`, `last_name`, `is_active`, and `client_ip`.
+  `GET /api/v1/iam/users` and `GET /api/v1/iam/users/:id` return the user fields defined in /specs/features/oidc-profile-sync/oidc-profile-sync.sdd; `GET /api/v1/iam/users/:id` adds `role_ids`.
   The `/api/v1/auth/webauthn/register/start` and `/api/v1/auth/webauthn/login/start` endpoints MUST return `rp_origin`, the origin the server validates `clientDataJSON.origin` against, so native clients can build matching client data.

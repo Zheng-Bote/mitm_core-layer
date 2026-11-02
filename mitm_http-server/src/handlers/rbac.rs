@@ -49,11 +49,14 @@ pub struct User {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub department: Option<String>,
+    pub email: Option<String>,
     pub is_active: bool,
 }
 
+const USER_COLUMNS: &str = "id, username, first_name, last_name, department, email, is_active";
+
 pub async fn handle_get_users(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, User>("SELECT id, username, first_name, last_name, department, is_active FROM admin_users ORDER BY id ASC")
+    match sqlx::query_as::<_, User>(&format!("SELECT {USER_COLUMNS} FROM admin_users ORDER BY id ASC"))
         .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
@@ -316,38 +319,54 @@ pub async fn handle_assign_roles(
     }
 }
 
-#[derive(Deserialize)]
-pub struct GetUserRolesQuery {
-    pub user_id: i32,
+#[derive(Serialize)]
+pub struct UserDetail {
+    #[serde(flatten)]
+    pub user: User,
+    pub role_ids: Vec<i32>,
 }
 
-pub async fn handle_get_user_roles(
+pub async fn handle_get_user(
     State(state): State<AppState>,
-    Query(query): Query<GetUserRolesQuery>,
+    Path(id): Path<i32>,
 ) -> impl IntoResponse {
-    let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = match sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
-        .bind(query.user_id)
+    let user = match sqlx::query_as::<_, User>(&format!("SELECT {USER_COLUMNS} FROM admin_users WHERE id = $1"))
+        .bind(id)
         .fetch_optional(&state.repo.get().unwrap().pool)
-        .await {
-            Ok(r) => r,
-            Err(_) => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
-        };
-
-    let (wrapped_dek, nonce, encrypted_roles) = match row {
-        Some(r) => r,
-        None => return (StatusCode::OK, Json(Vec::<i32>::new())).into_response(),
+        .await
+    {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            let err = ErrorResponse { errors: vec![JsonApiError { status: "404".into(), title: "Not Found".into(), detail: Some(format!("User {} not found.", id)) }] };
+            return (StatusCode::NOT_FOUND, Json(err)).into_response();
+        }
+        Err(e) => {
+            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(e.to_string()) }] };
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        }
     };
 
-    let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
-    let socket_path = socket_dir.join("mitm_scheduler.sock");
+    let role_ids = load_role_ids(&state, id).await;
+    (StatusCode::OK, Json(UserDetail { user, role_ids })).into_response()
+}
 
-    let plaintext = match crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::OK, axum::Json(Vec::<i32>::new())).into_response(),
+/// Decrypts the user's role IDs; an unreadable or missing assignment yields no roles.
+async fn load_role_ids(state: &AppState, user_id: i32) -> Vec<i32> {
+    let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT wrapped_dek, nonce, encrypted_roles FROM user_roles_encrypted WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.repo.get().unwrap().pool)
+        .await
+        .unwrap_or(None);
+
+    let Some((wrapped_dek, nonce, encrypted_roles)) = row else {
+        return Vec::new();
     };
 
-    let roles: Vec<i32> = serde_json::from_slice(&plaintext).unwrap_or_default();
-    (StatusCode::OK, Json(roles)).into_response()
+    let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
+    match crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
+        Ok(plaintext) => serde_json::from_slice(&plaintext).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
 }
 
 

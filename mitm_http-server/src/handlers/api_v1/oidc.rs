@@ -121,6 +121,17 @@ fn redirect(location: &str) -> Response {
 }
 
 /// Redirects the browser back to the login page and clears the login-state cookie.
+/// Profile claims of a validated ID token; `None` for missing or empty claims.
+struct ProfileClaims {
+    first_name: Option<String>,
+    last_name: Option<String>,
+    email: Option<String>,
+}
+
+fn filled(claim: Option<&str>) -> Option<String> {
+    claim.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string)
+}
+
 fn fail(code: &str) -> Response {
     (
         StatusCode::FOUND,
@@ -166,6 +177,7 @@ pub async fn login(State(state): State<AppState>) -> Response {
     let (auth_url, csrf, nonce) = client
         .authorize_url(CoreAuthenticationFlow::AuthorizationCode, CsrfToken::new_random, Nonce::new_random)
         .add_scope(Scope::new("profile".into()))
+        .add_scope(Scope::new("email".into()))
         .set_pkce_challenge(pkce_challenge)
         .url();
 
@@ -268,11 +280,15 @@ pub async fn callback(
             return fail("token_exchange_failed");
         }
     };
-    let subject = match token_response.id_token()
+    let (subject, profile) = match token_response.id_token()
         .ok_or_else(|| "token response without id_token".to_string())
         .and_then(|t| t.claims(&client.id_token_verifier(), &Nonce::new(login_state.nonce)).map_err(|e| e.to_string()))
     {
-        Ok(claims) => claims.subject().to_string(),
+        Ok(claims) => (claims.subject().to_string(), ProfileClaims {
+            first_name: filled(claims.given_name().and_then(|c| c.get(None)).map(|v| v.as_str())),
+            last_name: filled(claims.family_name().and_then(|c| c.get(None)).map(|v| v.as_str())),
+            email: filled(claims.email().map(|v| v.as_str())),
+        }),
         Err(e) => {
             log::error!("OIDC ID token rejected: {}", e);
             return fail("invalid_id_token");
@@ -304,6 +320,21 @@ pub async fn callback(
             return fail("inactive_user");
         }
         Some(true) => {}
+    }
+
+    // Filled claims overwrite the stored profile; missing ones keep it. A failure must not block the login.
+    if let Err(e) = sqlx::query(
+        "UPDATE admin_users SET first_name = COALESCE($1, first_name), last_name = COALESCE($2, last_name), email = COALESCE($3, email) WHERE username = $4"
+    )
+    .bind(&profile.first_name)
+    .bind(&profile.last_name)
+    .bind(&profile.email)
+    .bind(&subject)
+    .execute(&repo.pool)
+    .await
+    {
+        log::error!("OIDC profile sync for {} failed: {}", subject, e);
+        let _ = repo.log_system("ERROR", "http-server", &format!("OIDC profile sync for {} failed: {}", subject, e)).await;
     }
 
     // Issue session token (same lifetime as the WebAuthn login)
