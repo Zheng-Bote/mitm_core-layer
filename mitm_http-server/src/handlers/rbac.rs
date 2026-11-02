@@ -85,6 +85,13 @@ pub async fn handle_create_user(
     State(state): State<AppState>,
     Json(payload): Json<CreateUserReq>,
 ) -> impl IntoResponse {
+    let Some(username) = mitm_common::username::normalize(&payload.username) else {
+        let err = ErrorResponse {
+            errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Username must match ^[A-Z0-9._-]{1,64}$ (case-insensitive).".into()) }]
+        };
+        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+    };
+
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
     
@@ -102,7 +109,7 @@ pub async fn handle_create_user(
     let is_active = payload.is_active.unwrap_or(false);
 
     match sqlx::query("INSERT INTO admin_users (username, password_hash, first_name, last_name, department, is_active) VALUES ($1, $2, $3, $4, $5, $6)")
-        .bind(&payload.username)
+        .bind(&username)
         .bind(hash_str)
         .bind(&payload.first_name)
         .bind(&payload.last_name)
@@ -112,6 +119,12 @@ pub async fn handle_create_user(
         .await 
     {
         Ok(_) => StatusCode::CREATED.into_response(),
+        Err(e) if e.as_database_error().is_some_and(|d| d.is_unique_violation()) => {
+            let err = ErrorResponse {
+                errors: vec![JsonApiError { status: "409".into(), title: "Conflict".into(), detail: Some(format!("User {} already exists.", username)) }]
+            };
+            (StatusCode::CONFLICT, Json(err)).into_response()
+        }
         Err(e) => {
             let err = ErrorResponse {
                 errors: vec![JsonApiError { status: "500".into(), title: "Database error".into(), detail: Some(e.to_string()) }]

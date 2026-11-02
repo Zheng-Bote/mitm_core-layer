@@ -165,7 +165,9 @@ async fn handle_authenticate(req: mitm_common::ipc::AuthRequest, config: &DBConf
     
     // 1. In-Memory Check
     for admin in &config.admins {
-        if admin.username.as_bytes().ct_eq(req.username.as_bytes()).unwrap_u8() == 1 {
+        if let Some(admin_username) = mitm_common::username::normalize(&admin.username)
+            && admin_username.as_bytes().ct_eq(req.username.as_bytes()).unwrap_u8() == 1
+        {
             return IpcResponse::AuthenticateResult(AuthResponse {
                 success: true,
                 username: req.username,

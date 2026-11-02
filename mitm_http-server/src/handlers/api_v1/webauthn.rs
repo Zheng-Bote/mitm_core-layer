@@ -81,6 +81,12 @@ pub struct FinishLoginResp {
     pub session_token: String,
 }
 
+/// Answer for a username that does not match the canonical format.
+fn invalid_username_response() -> Response {
+    let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Username must match ^[A-Z0-9._-]{1,64}$ (case-insensitive).".into()) }] };
+    (StatusCode::BAD_REQUEST, Json(err)).into_response()
+}
+
 // GET /api/v1/auth/bootstrap/status
 pub async fn get_bootstrap_status(State(state): State<AppState>) -> Response {
     let repo = match state.repo.get() {
@@ -111,8 +117,12 @@ pub async fn get_bootstrap_status(State(state): State<AppState>) -> Response {
 // POST /api/v1/auth/webauthn/register/start
 pub async fn start_registration(
     State(state): State<AppState>,
-    Json(payload): Json<StartRegistrationReq>,
+    Json(mut payload): Json<StartRegistrationReq>,
 ) -> Response {
+    payload.username = match mitm_common::username::normalize(&payload.username) {
+        Some(u) => u,
+        None => return invalid_username_response(),
+    };
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {
@@ -455,8 +465,12 @@ pub async fn finish_registration(
 // POST /api/v1/auth/webauthn/login/start
 pub async fn start_login(
     State(state): State<AppState>,
-    Json(payload): Json<StartLoginReq>,
+    Json(mut payload): Json<StartLoginReq>,
 ) -> Response {
+    payload.username = match mitm_common::username::normalize(&payload.username) {
+        Some(u) => u,
+        None => return invalid_username_response(),
+    };
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {

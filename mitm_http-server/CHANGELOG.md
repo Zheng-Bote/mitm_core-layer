@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-02
+
+### Changed
+- **Case-insensitive usernames (mitm-2#29)**: Usernames received by `POST /api/v1/iam/users`, `POST /api/v1/auth/webauthn/register/start`, `POST /api/v1/auth/webauthn/login/start` and the OIDC `sub` claim are trimmed and uppercased before lookup or storage, so `q225265` and `Q225265` sign in as the same user. Requires database migration `005_username_uppercase.sql`.
+- Usernames that do not match `^[A-Z0-9._-]{1,64}$` are rejected with `400 Bad Request` (OIDC: `sso_error=unknown_user`, logged as `invalid_username`).
+
+### Fixed
+- `POST /api/v1/iam/users` answers `409 Conflict` instead of `500` for an existing username.
+
 ## [2.1.1] - 2026-10-31
 
 ### Fixed
