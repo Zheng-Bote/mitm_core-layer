@@ -10,11 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **BREAKING CHANGE**
 
 ### Changed
-- **`GET /api/v1/iam/users/:id` (mitm-2#31)**: Returns a user object `{id, username, first_name, last_name, department, email, is_active, role_ids}` instead of a bare role-ID array, and `404` for an unknown id. Clients must read the role IDs from `role_ids` (mitm_fe_cpp ≥ 2.0.2).
+- **`GET /api/v1/iam/users/:id` (mitm-2#31)**: Returns a user object `{id, username, first_name, last_name, department, email, is_active, role_ids}` instead of a bare role-ID array, and `404` for an unknown id. Clients must read the role IDs from `role_ids` (mitm_fe_cpp ≥ 2.1.0).
 
 ### Added
 - **OIDC profile sync (mitm-2#31)**: After a successful OIDC login of an active user, filled ID token claims overwrite the stored profile (`given_name` → `first_name`, `family_name` → `last_name`, `email` → `email`); missing or empty claims keep the stored value. A failed sync is logged to `system_logs` and does not block the login. The authorization request adds the scope `email`.
-- `GET /api/v1/iam/users` returns `email`. Requires database migration `006_admin_users_email.sql`.
+- `GET /api/v1/iam/users` returns `email`; `POST /api/v1/iam/users` and `PUT /api/v1/iam/users/:id` accept `email` (empty value → `null`, omitted on `PUT` → unchanged). Requires database migration `006_admin_users_email.sql`.
 
 ## [2.2.0] - 2026-11-02
 

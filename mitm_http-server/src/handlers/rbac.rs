@@ -81,7 +81,13 @@ pub struct CreateUserReq {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub department: Option<String>,
+    pub email: Option<String>,
     pub is_active: Option<bool>,
+}
+
+/// Trimmed e-mail address; an empty value is stored as `NULL`.
+fn email_value(email: &str) -> Option<&str> {
+    Some(email.trim()).filter(|e| !e.is_empty())
 }
 
 pub async fn handle_create_user(
@@ -111,12 +117,13 @@ pub async fn handle_create_user(
     let hash_str = format!("{}:{}", BASE64.encode(salt), BASE64.encode(hash));
     let is_active = payload.is_active.unwrap_or(false);
 
-    match sqlx::query("INSERT INTO admin_users (username, password_hash, first_name, last_name, department, is_active) VALUES ($1, $2, $3, $4, $5, $6)")
+    match sqlx::query("INSERT INTO admin_users (username, password_hash, first_name, last_name, department, email, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7)")
         .bind(&username)
         .bind(hash_str)
         .bind(&payload.first_name)
         .bind(&payload.last_name)
         .bind(&payload.department)
+        .bind(payload.email.as_deref().and_then(email_value))
         .bind(is_active)
         .execute(&state.repo.get().unwrap().pool)
         .await 
@@ -142,6 +149,7 @@ pub struct EditUserReq {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub department: Option<String>,
+    pub email: Option<String>,
     pub is_active: Option<bool>,
 }
 
@@ -154,10 +162,11 @@ pub async fn handle_edit_user(
     let mut param_idx = 1;
     let mut binds_str: Vec<String> = vec![];
     
-    if payload.first_name.is_some() || payload.last_name.is_some() || payload.department.is_some() || payload.is_active.is_some() {
+    if payload.first_name.is_some() || payload.last_name.is_some() || payload.department.is_some() || payload.email.is_some() || payload.is_active.is_some() {
         if payload.first_name.is_some() { binds_str.push(format!("first_name = ${}", param_idx)); param_idx += 1; }
         if payload.last_name.is_some() { binds_str.push(format!("last_name = ${}", param_idx)); param_idx += 1; }
         if payload.department.is_some() { binds_str.push(format!("department = ${}", param_idx)); param_idx += 1; }
+        if payload.email.is_some() { binds_str.push(format!("email = ${}", param_idx)); param_idx += 1; }
         if payload.is_active.is_some() { binds_str.push(format!("is_active = ${}", param_idx)); param_idx += 1; }
         
         update_query.push_str(&binds_str.join(", "));
@@ -167,6 +176,7 @@ pub async fn handle_edit_user(
         if let Some(ref f) = payload.first_name { q = q.bind(f); }
         if let Some(ref l) = payload.last_name { q = q.bind(l); }
         if let Some(ref d) = payload.department { q = q.bind(d); }
+        if let Some(ref e) = payload.email { q = q.bind(email_value(e)); }
         if let Some(a) = payload.is_active { q = q.bind(a); }
         q = q.bind(id);
 
