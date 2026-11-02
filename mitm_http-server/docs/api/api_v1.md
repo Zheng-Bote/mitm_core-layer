@@ -120,6 +120,8 @@ Usernames are case-insensitive. Every username received by the server (`POST /ap
 
 `first_name`, `last_name`, `department` and `email` may be `null`. `role_ids` is only part of `GET /api/v1/iam/users/:id`. For OIDC users, `first_name`, `last_name` and `email` are updated on every login (see [OIDC Login Flow](#oidc-login-flow)).
 
+`POST /api/v1/iam/users` accepts `username`, `password`, `first_name`, `last_name`, `department`, `email` and `is_active`; `PUT /api/v1/iam/users/:id` accepts `first_name`, `last_name`, `department`, `email` and `is_active` and changes only the fields that are present. An `email` that is empty after trimming is stored as `null`. Note that an OIDC login overwrites `email` (and the names) with filled IdP claims.
+
 `POST /api/v1/iam/users` answers `201 Created`, `400 Bad Request` for an invalid username and `409 Conflict` if the username already exists (in any case).
 
 ### 2.7 Auth API
