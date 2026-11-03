@@ -148,7 +148,7 @@ Session tokens are issued only after a successful WebAuthn ceremony (`login/fini
 1. `POST /api/v1/auth/webauthn/login/start` with `{"username": "..."}` returns `ceremony_id`, `public_key_options` and `rp_origin`.
 2. The client signs the challenge with its passkey (FIDO2 security key or platform authenticator).
 3. `POST /api/v1/auth/webauthn/login/finish` with `{"ceremony_id": "...", "credential": {...}}` returns `{"session_token": "..."}`.
-4. Subsequent requests send `Authorization: Bearer <session_token>`. Sessions expire after 24 h (absolute) or 2 h without activity; `GET /api/v1/auth/me` keeps them alive.
+4. Subsequent requests send `Authorization: Bearer <session_token>`. Sessions expire after 24 h (absolute) or 2 h without activity; `GET /api/v1/auth/me` keeps them alive and returns the session context `{roles, os_user, first_name, last_name, department, email, is_active, client_ip}` (unset profile fields are `null`).
 
 #### OIDC Login Flow
 Enabled when `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_REDIRECT_URI` are set; otherwise the OIDC endpoints answer `404` and `oidc/config` returns `{"enabled": false}`. The IdP must have `<public origin>/api/v1/auth/oidc/callback` registered as redirect URI.
