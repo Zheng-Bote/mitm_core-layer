@@ -117,7 +117,7 @@ pub async fn handle_create_user(
     let hash_str = format!("{}:{}", BASE64.encode(salt), BASE64.encode(hash));
     let is_active = payload.is_active.unwrap_or(false);
 
-    match sqlx::query("INSERT INTO admin_users (username, password_hash, first_name, last_name, department, email, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7)")
+    match sqlx::query_scalar::<_, i32>("INSERT INTO admin_users (username, password_hash, first_name, last_name, department, email, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id")
         .bind(&username)
         .bind(hash_str)
         .bind(&payload.first_name)
@@ -125,10 +125,10 @@ pub async fn handle_create_user(
         .bind(&payload.department)
         .bind(payload.email.as_deref().and_then(email_value))
         .bind(is_active)
-        .execute(&state.repo.get().unwrap().pool)
+        .fetch_one(&state.repo.get().unwrap().pool)
         .await 
     {
-        Ok(_) => StatusCode::CREATED.into_response(),
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
         Err(e) if e.as_database_error().is_some_and(|d| d.is_unique_violation()) => {
             let err = ErrorResponse {
                 errors: vec![JsonApiError { status: "409".into(), title: "Conflict".into(), detail: Some(format!("User {} already exists.", username)) }]

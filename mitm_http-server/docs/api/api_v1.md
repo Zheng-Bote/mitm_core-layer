@@ -122,7 +122,9 @@ Usernames are case-insensitive. Every username received by the server (`POST /ap
 
 `POST /api/v1/iam/users` accepts `username`, `password`, `first_name`, `last_name`, `department`, `email` and `is_active`; `PUT /api/v1/iam/users/:id` accepts `first_name`, `last_name`, `department`, `email` and `is_active` and changes only the fields that are present. An `email` that is empty after trimming is stored as `null`. Note that an OIDC login overwrites `email` (and the names) with filled IdP claims.
 
-`POST /api/v1/iam/users` answers `201 Created`, `400 Bad Request` for an invalid username and `409 Conflict` if the username already exists (in any case).
+`POST /api/v1/iam/users` answers `201 Created` with the new user's id (`{"id": 7}`), `400 Bad Request` for an invalid username and `409 Conflict` if the username already exists (in any case).
+
+`POST /api/v1/iam/assign-role` with `{"user_id": 7, "role_ids": [1, 3]}` replaces all role assignments of the user (stored encrypted) and writes an `assign_roles` entry to `admin_audit_logs`; an empty `role_ids` removes all roles. Role ids and names come from `GET /api/v1/iam/roles`.
 
 ### 2.7 Auth API
 Endpoints for passkey (WebAuthn) and OAuth2/OIDC authentication and the currently authenticated user's session.
