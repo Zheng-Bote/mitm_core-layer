@@ -16,6 +16,8 @@ pub struct RolesResponse {
     pub os_user: String,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub department: Option<String>,
+    pub email: Option<String>,
     pub is_active: bool,
     pub client_ip: Option<String>,
 }
@@ -92,16 +94,20 @@ pub async fn get_roles(
         let mut roles = vec![];
         let mut first_name = None;
         let mut last_name = None;
+        let mut department = None;
+        let mut email = None;
         let mut is_active = false;
 
-        if let Ok(Some((user_id, f_name, l_name, active))) = sqlx::query_as::<_, (i32, Option<String>, Option<String>, bool)>(
-            "SELECT id, first_name, last_name, is_active FROM admin_users WHERE username = $1"
+        if let Ok(Some((user_id, f_name, l_name, dept, mail, active))) = sqlx::query_as::<_, (i32, Option<String>, Option<String>, Option<String>, Option<String>, bool)>(
+            "SELECT id, first_name, last_name, department, email, is_active FROM admin_users WHERE username = $1"
         )
             .bind(&session.0)
             .fetch_optional(pool).await 
         {
             first_name = f_name;
             last_name = l_name;
+            department = dept;
+            email = mail;
             is_active = active;
 
             let row = sqlx::query_as::<_, (Vec<u8>, Vec<u8>, Vec<u8>)>(
@@ -134,6 +140,8 @@ pub async fn get_roles(
             os_user: session.0,
             first_name,
             last_name,
+            department,
+            email,
             is_active,
             client_ip: session.3,
         }).into_response()
