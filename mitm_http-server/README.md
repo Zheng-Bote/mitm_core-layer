@@ -86,6 +86,7 @@ Set `WEBAUTHN_RP_ID` and `WEBAUTHN_RP_ORIGIN` to the public host name and origin
 - `WEBAUTHN_RP_ORIGIN` (default `http://localhost:<MITM_HTTP_PORT>`): Exact browser origin of the web frontend (`scheme://host[:port]`). Its host must equal `WEBAUTHN_RP_ID` or be a subdomain of it. Local development with `ng serve`: `WEBAUTHN_RP_ID=localhost`, `WEBAUTHN_RP_ORIGIN=http://localhost:4200`.
 - `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URI` (optional): Enable "Sign in with SSO" via OAuth2/OIDC (authorization code flow with PKCE). `OIDC_ISSUER` must equal the `issuer` of the IdP discovery document character for character (e.g. `https://sso.example.com:443/auth/oauth2/realms/root/realms/alpha`). `OIDC_REDIRECT_URI` must be registered at the IdP and point to `/api/v1/auth/oidc/callback`.
 - `OIDC_CLIENT_SECRET` (optional): Client secret for `client_secret_basic`; leave unset for a public client.
+- `OIDC_DEPARTMENT_CLAIM` (optional, default `department`): Name of the IdP UserInfo claim (string) that is stored as `admin_users.department` after an OIDC login. The IdP must release this claim to the client for the requested scopes (`openid profile email`).
 - `MITM_DB_URL` (optional): PostgreSQL Connection String.
 - `IAM_SOCKET_PATH` (optional): Path to the IAM UDS.
 - `SCHEDULER_SOCKET_PATH` (optional): Path to the Scheduler UDS.
