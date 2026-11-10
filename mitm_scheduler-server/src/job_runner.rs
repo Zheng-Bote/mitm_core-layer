@@ -146,7 +146,9 @@ impl JobOrchestrator {
                 let status = match child.wait().await {
                     Ok(s) => s,
                     Err(e) => {
-                        log::error!("Error waiting for job {}: {}", program.name, e);
+                        let err_msg = format!("Error waiting for job {}: {}", program.name, e);
+                        log::error!("{}", err_msg);
+                        let _ = repo.log_system("ERROR", "Scheduler", &err_msg).await;
                         let _ = repo.update_program_run(run_id, -1, false, pid).await;
                         running_jobs.lock().await.remove(&program.id);
                         return;
@@ -160,7 +162,9 @@ impl JobOrchestrator {
                 if success {
                     log::info!("Job {} completed successfully (RunID: {})", program.name, run_id);
                 } else {
-                    log::error!("Job {} failed with code {} (RunID: {})", program.name, exit_code, run_id);
+                    let err_msg = format!("Job {} failed with code {} (RunID: {})", program.name, exit_code, run_id);
+                    log::error!("{}", err_msg);
+                    let _ = repo.log_system("ERROR", "Scheduler", &err_msg).await;
                 }
 
                 let _ = repo.update_program_run(run_id, exit_code, success, pid).await;
