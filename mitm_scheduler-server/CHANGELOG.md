@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-11-10
+
+### Fixed
+- **Logging**: A job exiting with a non-zero exit code (`Job <name> failed with code <code>`) and errors while waiting for a job process are now also written to `system_logs` with level `ERROR` (Feature spec `job-failure-logging`).
+
+
 ## [1.3.3] - 2026-10-08
 
 ### Added
