@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-11-10
+
+### Added
+- **OIDC UserInfo:** after a successful OIDC login the server requests the IdP UserInfo endpoint with the access token (expected subject = ID token `sub`). Filled UserInfo claims take precedence over the ID token claims for `first_name`, `last_name` and `email`; the claim named by the new `OIDC_DEPARTMENT_CLAIM` (default `department`) now also updates `admin_users.department`. Without UserInfo endpoint or on failure the login continues with the ID token claims (`WARN` in `system_logs`). Tokens and the UserInfo response never reach the browser.
+
+### Changed
+- Requests to the IdP (discovery, token, UserInfo) time out after 10 seconds.
+
 ## [3.3.0] - 2026-11-10
 
 Complete and trustworthy `admin_audit_logs` ([#86](https://github.com/Zheng-Bote/mitm_core-layer/issues/86)).

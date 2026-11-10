@@ -16,10 +16,10 @@ use axum::{
 };
 use chrono::{Utc, Duration};
 use openidconnect::{
-    core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet,
-    EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
-    TokenResponse,
+    core::{CoreAuthenticationFlow, CoreClient, CoreGenderClaim, CoreProviderMetadata},
+    AccessToken, AdditionalClaims, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
+    EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, Scope, SubjectIdentifier, TokenResponse, UserInfoClaims,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -30,6 +30,10 @@ use super::auth_guard;
 const STATE_COOKIE: &str = "__Host-mitm_oidc";
 const LOGIN_STATE_TTL_MINUTES: i64 = 10;
 const HANDOFF_TTL_SECONDS: i64 = 60;
+/// Timeout of every request to the IdP (discovery, token, UserInfo).
+const IDP_TIMEOUT_SECONDS: u64 = 10;
+/// Default name of the UserInfo claim that holds the department (`OIDC_DEPARTMENT_CLAIM`).
+const DEFAULT_DEPARTMENT_CLAIM: &str = "department";
 
 type OidcClient = CoreClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointMaybeSet, EndpointMaybeSet>;
 
@@ -40,6 +44,8 @@ pub struct Oidc {
     client_id: String,
     client_secret: Option<Zeroizing<String>>,
     redirect_uri: String,
+    /// UserInfo claim mapped to `admin_users.department`.
+    department_claim: String,
     http: reqwest::Client,
     client: tokio::sync::OnceCell<OidcClient>,
 }
@@ -54,6 +60,7 @@ impl Oidc {
         // No redirects: discovery and token requests must hit the configured IdP only.
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(IDP_TIMEOUT_SECONDS))
             .build()
             .ok()?;
         Some(Self {
@@ -61,9 +68,23 @@ impl Oidc {
             client_id,
             client_secret: var("OIDC_CLIENT_SECRET").map(Zeroizing::new),
             redirect_uri,
+            department_claim: var("OIDC_DEPARTMENT_CLAIM").unwrap_or_else(|| DEFAULT_DEPARTMENT_CLAIM.to_string()),
             http,
             client: tokio::sync::OnceCell::new(),
         })
+    }
+
+    /// Requests the IdP UserInfo endpoint with the access token. The response must belong to
+    /// `subject` (the ID token `sub`). Returns `Ok(None)` if the IdP has no UserInfo endpoint.
+    async fn userinfo(&self, client: &OidcClient, access_token: AccessToken, subject: &str) -> Result<Option<ProfileClaims>, String> {
+        let Ok(request) = client.user_info(access_token, Some(SubjectIdentifier::new(subject.to_string()))) else {
+            return Ok(None);
+        };
+        let claims: UserInfoClaims<UserInfoExtraClaims, CoreGenderClaim> = request
+            .request_async(&self.http)
+            .await
+            .map_err(|e| error_chain(&e))?;
+        Ok(Some(userinfo_profile(&claims, &self.department_claim)))
     }
 
     async fn client(&self) -> Result<&OidcClient, String> {
@@ -120,12 +141,55 @@ fn redirect(location: &str) -> Response {
     (StatusCode::FOUND, [(LOCATION, location.to_string())]).into_response()
 }
 
-/// Redirects the browser back to the login page and clears the login-state cookie.
-/// Profile claims of a validated ID token; `None` for missing or empty claims.
+/// Profile claims of the ID token or the UserInfo response; `None` for missing or empty claims.
+#[derive(Debug, Default, PartialEq)]
 struct ProfileClaims {
     first_name: Option<String>,
     last_name: Option<String>,
     email: Option<String>,
+    department: Option<String>,
+}
+
+/// Non-standard claims of the UserInfo response (e.g. the department claim).
+#[derive(Debug, Deserialize, Serialize)]
+struct UserInfoExtraClaims {
+    #[serde(flatten)]
+    other: serde_json::Map<String, serde_json::Value>,
+}
+
+impl AdditionalClaims for UserInfoExtraClaims {}
+
+/// Profile claims of a UserInfo response; the department is a string claim named `department_claim`.
+fn userinfo_profile(claims: &UserInfoClaims<UserInfoExtraClaims, CoreGenderClaim>, department_claim: &str) -> ProfileClaims {
+    ProfileClaims {
+        first_name: filled(claims.given_name().and_then(|c| c.get(None)).map(|v| v.as_str())),
+        last_name: filled(claims.family_name().and_then(|c| c.get(None)).map(|v| v.as_str())),
+        email: filled(claims.email().map(|v| v.as_str())),
+        department: filled(claims.additional_claims().other.get(department_claim).and_then(|v| v.as_str())),
+    }
+}
+
+/// A filled UserInfo claim takes precedence over the ID token claim.
+fn merge_profile(id_token: ProfileClaims, userinfo: Option<ProfileClaims>) -> ProfileClaims {
+    let userinfo = userinfo.unwrap_or_default();
+    ProfileClaims {
+        first_name: userinfo.first_name.or(id_token.first_name),
+        last_name: userinfo.last_name.or(id_token.last_name),
+        email: userinfo.email.or(id_token.email),
+        department: userinfo.department.or(id_token.department),
+    }
+}
+
+/// An error with its sources, e.g. `Failed to verify claims: invalid subject`.
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }
 
 fn filled(claim: Option<&str>) -> Option<String> {
@@ -287,7 +351,7 @@ pub async fn callback(
             return fail("token_exchange_failed");
         }
     };
-    let (subject, profile) = match token_response.id_token()
+    let (id_token_subject, id_token_profile) = match token_response.id_token()
         .ok_or_else(|| "token response without id_token".to_string())
         .and_then(|t| t.claims(&client.id_token_verifier(), &Nonce::new(login_state.nonce)).map_err(|e| e.to_string()))
     {
@@ -295,6 +359,7 @@ pub async fn callback(
             first_name: filled(claims.given_name().and_then(|c| c.get(None)).map(|v| v.as_str())),
             last_name: filled(claims.family_name().and_then(|c| c.get(None)).map(|v| v.as_str())),
             email: filled(claims.email().map(|v| v.as_str())),
+            department: None,
         }),
         Err(e) => {
             log::error!("OIDC ID token rejected: {}", e);
@@ -303,11 +368,11 @@ pub async fn callback(
     };
 
     // The IdP may send the login ID in any case; match it in canonical form.
-    let subject = match mitm_common::username::normalize(&subject) {
+    let subject = match mitm_common::username::normalize(&id_token_subject) {
         Some(s) => s,
         None => {
             // The audit reason is precise; the redirect keeps the existing error code.
-            repo.audit(&subject, crate::audit::action::USER_LOGIN_FAILED, crate::audit::login_failed("oidc", "invalid_username", client_ip)).await;
+            repo.audit(&id_token_subject, crate::audit::action::USER_LOGIN_FAILED, crate::audit::login_failed("oidc", "invalid_username", client_ip)).await;
             return fail("unknown_user");
         }
     };
@@ -328,13 +393,26 @@ pub async fn callback(
         Some(true) => {}
     }
 
+    // UserInfo (with the ID token `sub` as expected subject) complements the ID token claims.
+    // Without endpoint or on failure the login continues with the ID token claims.
+    let userinfo = match oidc.userinfo(client, token_response.access_token().clone(), &id_token_subject).await {
+        Ok(userinfo) => userinfo,
+        Err(e) => {
+            log::warn!("OIDC userinfo for {} failed: {}", subject, e);
+            let _ = repo.log_system("WARN", "http-server", &format!("OIDC userinfo for {} failed: {}", subject, e)).await;
+            None
+        }
+    };
+    let profile = merge_profile(id_token_profile, userinfo);
+
     // Filled claims overwrite the stored profile; missing ones keep it. A failure must not block the login.
     if let Err(e) = sqlx::query(
-        "UPDATE admin_users SET first_name = COALESCE($1, first_name), last_name = COALESCE($2, last_name), email = COALESCE($3, email) WHERE username = $4"
+        "UPDATE admin_users SET first_name = COALESCE($1, first_name), last_name = COALESCE($2, last_name), email = COALESCE($3, email), department = COALESCE($4, department) WHERE username = $5"
     )
     .bind(&profile.first_name)
     .bind(&profile.last_name)
     .bind(&profile.email)
+    .bind(&profile.department)
     .bind(&subject)
     .execute(&repo.pool)
     .await
@@ -419,6 +497,87 @@ pub fn routes() -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    type TestClaims = UserInfoClaims<UserInfoExtraClaims, CoreGenderClaim>;
+
+    /// Parses a UserInfo JSON response the way openidconnect does, with `q225265` as expected subject.
+    fn userinfo_claims(json: &str) -> TestClaims {
+        TestClaims::from_json::<std::io::Error>(json.as_bytes(), Some(&SubjectIdentifier::new("q225265".into())))
+            .expect("valid UserInfo response")
+    }
+
+    #[test]
+    fn userinfo_of_another_subject_is_rejected() {
+        let result = TestClaims::from_json::<std::io::Error>(
+            br#"{"sub": "someone-else", "email": "x@example.com"}"#,
+            Some(&SubjectIdentifier::new("q225265".into())),
+        );
+        let message = error_chain(&result.expect_err("other subject must be rejected"));
+        assert!(message.contains("expected `q225265` (found `someone-else`)"), "{message}");
+    }
+
+    #[test]
+    fn userinfo_profile_reads_standard_and_department_claims() {
+        let claims = userinfo_claims(r#"{"sub": "q225265", "given_name": " Max ", "family_name": "", "email": "max@example.com", "department": "FG-123", "orgunit": "OU-9"}"#);
+        assert_eq!(userinfo_profile(&claims, DEFAULT_DEPARTMENT_CLAIM), ProfileClaims {
+            first_name: Some("Max".into()),
+            last_name: None, // empty after trimming
+            email: Some("max@example.com".into()),
+            department: Some("FG-123".into()),
+        });
+        // OIDC_DEPARTMENT_CLAIM selects another claim.
+        assert_eq!(userinfo_profile(&claims, "orgunit").department, Some("OU-9".into()));
+        assert_eq!(userinfo_profile(&claims, "missing").department, None);
+    }
+
+    #[test]
+    fn non_string_department_is_ignored() {
+        let claims = userinfo_claims(r#"{"sub": "q225265", "department": ["A", "B"]}"#);
+        assert_eq!(userinfo_profile(&claims, DEFAULT_DEPARTMENT_CLAIM).department, None);
+        let claims = userinfo_claims(r#"{"sub": "q225265", "department": 42}"#);
+        assert_eq!(userinfo_profile(&claims, DEFAULT_DEPARTMENT_CLAIM).department, None);
+    }
+
+    #[test]
+    fn userinfo_takes_precedence_over_id_token() {
+        let id_token = ProfileClaims {
+            first_name: Some("Maximilian".into()),
+            last_name: Some("Mustermann".into()),
+            email: Some("old@example.com".into()),
+            department: None,
+        };
+        let userinfo = ProfileClaims {
+            first_name: None,
+            last_name: None,
+            email: Some("new@example.com".into()),
+            department: Some("FG-123".into()),
+        };
+        assert_eq!(merge_profile(id_token, Some(userinfo)), ProfileClaims {
+            first_name: Some("Maximilian".into()),
+            last_name: Some("Mustermann".into()),
+            email: Some("new@example.com".into()),
+            department: Some("FG-123".into()),
+        });
+    }
+
+    #[test]
+    fn without_userinfo_the_id_token_claims_are_used() {
+        let id_token = ProfileClaims { email: Some("max@example.com".into()), ..Default::default() };
+        assert_eq!(merge_profile(id_token, None), ProfileClaims { email: Some("max@example.com".into()), ..Default::default() });
+    }
+
+    #[test]
+    fn error_chain_includes_sources() {
+        #[derive(Debug)]
+        struct Wrapped(std::io::Error);
+        impl std::fmt::Display for Wrapped {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "Failed to verify claims") }
+        }
+        impl std::error::Error for Wrapped {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(&self.0) }
+        }
+        assert_eq!(error_chain(&Wrapped(std::io::Error::other("invalid subject"))), "Failed to verify claims: invalid subject");
+    }
 
     #[test]
     fn state_cookie_is_found_among_other_cookies() {
