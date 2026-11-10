@@ -6,6 +6,7 @@ use casbin::CoreApi;
 
 mod ipc_client;
 mod db;
+mod audit;
 mod handlers;
 #[allow(warnings, clippy::all)]
 mod schematas;

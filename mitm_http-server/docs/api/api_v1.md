@@ -38,6 +38,9 @@ System operations, health, and backups.
 | `/api/v1/system/restore` | POST | ADMIN |
 | `/api/v1/system/key-rotation` | POST | ADMIN |
 | `/api/v1/system/storage-keys` | GET | ADMIN |
+| `/api/v1/system/action` | POST | authenticated (any role) |
+
+`POST /api/v1/system/action` with `{"action": "frontend_startup", "details": {...}}` lets a client report an action to `admin_audit_logs`. It is stored as `CLIENT_<ACTION>` (here `CLIENT_FRONTEND_STARTUP`), see [Admin Audit Log](#admin-audit-log).
 
 ### 2.2 Jobs API
 Job listing and execution control.
@@ -124,7 +127,7 @@ Usernames are case-insensitive. Every username received by the server (`POST /ap
 
 `POST /api/v1/iam/users` answers `201 Created` with the new user's id (`{"id": 7}`), `400 Bad Request` for an invalid username and `409 Conflict` if the username already exists (in any case).
 
-`POST /api/v1/iam/assign-role` with `{"user_id": 7, "role_ids": [1, 3]}` replaces all role assignments of the user (stored encrypted) and writes an `assign_roles` entry to `admin_audit_logs`; an empty `role_ids` removes all roles. Role ids and names come from `GET /api/v1/iam/roles`.
+`POST /api/v1/iam/assign-role` with `{"user_id": 7, "role_ids": [1, 3]}` replaces all role assignments of the user (stored encrypted) and writes an `ASSIGN_ROLES` entry to `admin_audit_logs`; an empty `role_ids` removes all roles. Role ids and names come from `GET /api/v1/iam/roles`.
 
 ### 2.7 Auth API
 Endpoints for passkey (WebAuthn) and OAuth2/OIDC authentication and the currently authenticated user's session.
@@ -196,6 +199,28 @@ IdP tokens are neither stored nor returned to the browser. Callback failures red
 | `429` | all public auth endpoints | Rate limit exceeded |
 
 *Note: The root `/health` endpoint remains at the root level for load balancer / AWS health checks.*
+
+### Admin Audit Log
+
+The http-server writes the following actions to `admin_audit_logs` (`username`, `action`, `details` as JSON object). Secrets – `config_payload`, passwords, tokens, WebAuthn assertions or challenges, OIDC codes or state – are never written. A failed audit write is reported on STDOUT and in `system_logs` (level `ERROR`).
+
+| Action | When | `details` |
+| --- | --- | --- |
+| `USER_LOGIN_WEBAUTHN` / `USER_LOGIN_OIDC` | Successful login | `status` |
+| `USER_LOGIN_FAILED` | Failed WebAuthn login or rejected OIDC login | `method` (`webauthn`, `oidc`), `reason`, `client_ip` |
+| `BOOTSTRAP_ADMIN_REGISTERED` | Bootstrap administrator created (`username` = `system`) | `username` |
+| `FORBIDDEN_ACCESS` | Request denied by RBAC | path, method, roles |
+| `ASSIGN_ROLES` | Roles of a user replaced | `user_id`, `roles` |
+| `BACKUP_CONFIG` / `RESTORE_CONFIG` | Configuration backup / restore | – |
+| `KEY_ROTATION_SUCCESS` | Storage key rotation | `deactivated_count` |
+| `UPSERT_CREDENTIAL` / `DELETE_CREDENTIAL` | Source credentials created, updated / deleted | `id`, `source_name`, `connector_type`, `topic`, `is_active`, `operation` (`create`, `update`) / `id` |
+| `UPSERT_TARGET_CREDENTIAL` / `DELETE_TARGET_CREDENTIAL` | Delivery target created, updated / deleted | `id`, `topic`, `adapter_type`, `endpoint_url` (without user info, query, fragment), `is_active`, `operation` / `id` |
+| `UPSERT_*` / `DELETE_*` for `TOPIC_DEPENDENCY`, `TRANSFORMATION`, `VALIDATION`, `RULE`, `SOURCE`, `TARGET` | Transformation configuration changed | `id`, name or field |
+| `CLIENT_<ACTION>` | Client report via `POST /api/v1/system/action` | as sent by the client |
+
+`USER_LOGIN_FAILED` reasons – WebAuthn: `invalid_username`, `unknown_user`, `account_inactive`, `no_passkeys` (`login/start`); `ceremony_not_found`, `ceremony_expired`, `verification_failed`, `account_inactive` (`login/finish`). OIDC: `invalid_state`, `invalid_issuer`, `invalid_id_token`, `invalid_username`, `unknown_user`, `inactive_user`. IdP-side errors (`idp_error`, `idp_unavailable`, `token_exchange_failed`) and server errors are not login failures. `username` is `-` when the user is not known yet.
+
+Server-side action names are UPPER_SNAKE_CASE. Entries written before mitm-http-server 3.3.0 keep their original names (e.g. `assign_roles`, `key_rotation_success`, rejected OIDC logins as `USER_LOGIN_OIDC` with `details.status = "rejected"`).
 
 ## 3. Content Negotiation (FlatBuffers vs JSON)
 Endpoints that handle large data sets (e.g., audit logs, transformation errors, DLQ) examine the `Accept` HTTP header:
