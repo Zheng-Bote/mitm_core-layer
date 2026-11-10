@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-11-10
+
+Complete and trustworthy `admin_audit_logs` ([#86](https://github.com/Zheng-Bote/mitm_core-layer/issues/86)).
+
+### Fixed
+- **Silently lost audit entries:** 15 audit writes (all `UPSERT_*` / `DELETE_*` of the transformation configuration, `DELETE_CREDENTIAL`, `DELETE_TARGET_CREDENTIAL`) bound a text value to the JSONB column `details`; PostgreSQL rejected them and the error was ignored, so none of these actions was ever logged. All entries now use JSON objects, and a failed audit write is reported on STDOUT and in `system_logs` (`ERROR`).
+
+### Added
+- `USER_LOGIN_FAILED` for failed WebAuthn logins (`login/start`, `login/finish`) and rejected OIDC logins, with `method`, `reason` and `client_ip`.
+- `UPSERT_CREDENTIAL` / `UPSERT_TARGET_CREDENTIAL` when source credentials / delivery targets are created or updated (never `config_payload`; `endpoint_url` without user info, query and fragment).
+- Audit module with all action names as constants.
+
+### Changed
+- Client-reported actions of `POST /api/v1/system/action` are stored as `CLIENT_<ACTION>`, so a client can no longer write server actions such as `DELETE_CREDENTIAL`.
+- Action names are UPPER_SNAKE_CASE: `assign_roles` → `ASSIGN_ROLES`, `key_rotation_success` → `KEY_ROTATION_SUCCESS`; rejected OIDC logins are `USER_LOGIN_FAILED` instead of `USER_LOGIN_OIDC`. Existing rows are not migrated.
+
 ## [3.2.1] - 2026-11-10
 
 ### Fixed

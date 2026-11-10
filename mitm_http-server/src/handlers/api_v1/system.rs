@@ -34,10 +34,11 @@ pub async fn handle_action(
         None => serde_json::json!({}),
     };
 
+    // Client-reported actions carry the CLIENT_ prefix, so a client can never write a server action.
     let query = "INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)";
     match sqlx::query(query)
         .bind(&auth.username)
-        .bind(&payload.action)
+        .bind(crate::audit::client_action(&payload.action))
         .bind(details_json)
         .execute(&state.repo.get().unwrap().pool)
         .await

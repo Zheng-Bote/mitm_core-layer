@@ -314,12 +314,7 @@ pub async fn handle_assign_roles(
     .execute(&state.repo.get().unwrap().pool)
     .await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username)
-                .bind("assign_roles")
-                .bind(serde_json::json!({"user_id": payload.user_id, "roles": payload.role_ids}))
-                .execute(&state.repo.get().unwrap().pool)
-                .await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::ASSIGN_ROLES, serde_json::json!({"user_id": payload.user_id, "roles": payload.role_ids})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => {

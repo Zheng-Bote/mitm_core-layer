@@ -263,6 +263,11 @@ async fn insert_user(
 /// Persists RP origin / RP ID mismatches to `system_logs`: they point to a misconfigured
 /// `WEBAUTHN_RP_ORIGIN` / `WEBAUTHN_RP_ID` rather than a bad credential. The client still only
 /// receives the generic verification error.
+/// Writes a `USER_LOGIN_FAILED` audit entry for a failed WebAuthn login.
+async fn login_failed(repo: &crate::db::Repository, username: &str, reason: &str, client_ip: Option<std::net::IpAddr>) {
+    repo.audit(username, crate::audit::action::USER_LOGIN_FAILED, crate::audit::login_failed("webauthn", reason, client_ip)).await;
+}
+
 async fn log_rp_config_error(state: &AppState, repo: &crate::db::Repository, ceremony: &str, e: &WebauthnError) {
     if matches!(e, WebauthnError::InvalidRPOrigin | WebauthnError::InvalidRPIDHash) {
         let msg = format!(
@@ -395,7 +400,7 @@ pub async fn finish_registration(
                 }
             }
         }
-        let _ = repo.log_admin("system", "BOOTSTRAP_ADMIN_REGISTERED", serde_json::json!({ "username": username })).await;
+        repo.audit("system", crate::audit::action::BOOTSTRAP_ADMIN_REGISTERED, serde_json::json!({ "username": username })).await;
     }
 
     // Save Passkey Credential
@@ -465,17 +470,23 @@ pub async fn finish_registration(
 // POST /api/v1/auth/webauthn/login/start
 pub async fn start_login(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
     Json(mut payload): Json<StartLoginReq>,
 ) -> Response {
-    payload.username = match mitm_common::username::normalize(&payload.username) {
-        Some(u) => u,
-        None => return invalid_username_response(),
-    };
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {
             let err = ErrorResponse { errors: vec![JsonApiError { status: "503".into(), title: "Service Unavailable".into(), detail: Some("Database not ready".into()) }] };
             return (StatusCode::SERVICE_UNAVAILABLE, Json(err)).into_response();
+        }
+    };
+    let client_ip = auth_guard::client_ip(&headers, peer.as_ref(), state.trust_proxy_headers);
+    payload.username = match mitm_common::username::normalize(&payload.username) {
+        Some(u) => u,
+        None => {
+            login_failed(repo, "-", "invalid_username", client_ip).await;
+            return invalid_username_response();
         }
     };
 
@@ -494,12 +505,14 @@ pub async fn start_login(
     let (user_id, is_active) = match user_opt {
         Some((id, active)) => (id, active),
         None => {
+            login_failed(repo, &payload.username, "unknown_user", client_ip).await;
             let err = ErrorResponse { errors: vec![JsonApiError { status: "404".into(), title: "Not Found".into(), detail: Some("User not found.".into()) }] };
             return (StatusCode::NOT_FOUND, Json(err)).into_response();
         }
     };
 
     if !is_active {
+        login_failed(repo, &payload.username, "account_inactive", client_ip).await;
         let err = ErrorResponse { errors: vec![JsonApiError { status: "403".into(), title: "Forbidden".into(), detail: Some("Account is inactive pending administrator approval.".into()) }] };
         return (StatusCode::FORBIDDEN, Json(err)).into_response();
     }
@@ -518,6 +531,7 @@ pub async fn start_login(
         };
 
     if cred_rows.is_empty() {
+        login_failed(repo, &payload.username, "no_passkeys", client_ip).await;
         let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("No WebAuthn passkeys registered for this user.".into()) }] };
         return (StatusCode::BAD_REQUEST, Json(err)).into_response();
     }
@@ -581,6 +595,7 @@ pub async fn finish_login(
         }
     };
 
+    let client_ip = auth_guard::client_ip(&headers, peer.as_ref(), state.trust_proxy_headers);
     let row = match sqlx::query_as::<_, (serde_json::Value, chrono::DateTime<chrono::Utc>)>(
         "SELECT state_data, expires_at FROM webauthn_states WHERE id = $1 AND challenge_type = 'login'"
     )
@@ -589,12 +604,14 @@ pub async fn finish_login(
     .await {
         Ok(Some(r)) => r,
         _ => {
+            login_failed(repo, "-", "ceremony_not_found", client_ip).await;
             let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Ceremony expired or not found.".into()) }] };
             return (StatusCode::BAD_REQUEST, Json(err)).into_response();
         }
     };
 
     if row.1 < Utc::now() {
+        login_failed(repo, row.0["username"].as_str().unwrap_or("-"), "ceremony_expired", client_ip).await;
         let _ = sqlx::query("DELETE FROM webauthn_states WHERE id = $1").bind(payload.ceremony_id).execute(&repo.pool).await;
         let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Ceremony expired.".into()) }] };
         return (StatusCode::BAD_REQUEST, Json(err)).into_response();
@@ -615,6 +632,7 @@ pub async fn finish_login(
         Err(e) => {
             log::error!("WebAuthn finish_passkey_authentication failed: {:?}", e);
             log_rp_config_error(&state, repo, "login", &e).await;
+            login_failed(repo, state_data["username"].as_str().unwrap_or("-"), "verification_failed", client_ip).await;
             let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Passkey verification failed.".into()) }] };
             return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
         }
@@ -632,6 +650,7 @@ pub async fn finish_login(
         .unwrap_or(false);
 
     if !is_active {
+        login_failed(repo, username, "account_inactive", client_ip).await;
         let err = ErrorResponse { errors: vec![JsonApiError { status: "403".into(), title: "Forbidden".into(), detail: Some("Account is inactive.".into()) }] };
         return (StatusCode::FORBIDDEN, Json(err)).into_response();
     }
@@ -665,7 +684,7 @@ pub async fn finish_login(
     .execute(&repo.pool)
     .await;
 
-    let _ = repo.log_admin(username, "USER_LOGIN_WEBAUTHN", serde_json::json!({ "status": "success" })).await;
+    repo.audit(username, crate::audit::action::USER_LOGIN_WEBAUTHN, serde_json::json!({ "status": "success" })).await;
 
     (StatusCode::OK, Json(FinishLoginResp {
         session_token: token_uuid.to_string(),

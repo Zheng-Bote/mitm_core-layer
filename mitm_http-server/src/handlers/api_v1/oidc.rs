@@ -225,9 +225,16 @@ pub async fn callback(
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable", "Database not ready");
     };
 
+    let client_ip = auth_guard::client_ip(&headers, peer.as_ref(), state.trust_proxy_headers);
+    // Rejected logins are audited as USER_LOGIN_FAILED; IdP-side and technical failures are not.
+    let rejected = |subject: String, reason: &'static str| async move {
+        repo.audit(&subject, crate::audit::action::USER_LOGIN_FAILED, crate::audit::login_failed("oidc", reason, client_ip)).await;
+        fail(reason)
+    };
+
     // Consume the login state first so that every callback, even a failing one, uses it up.
     let Some(state_id) = state_cookie(&headers) else {
-        return fail("invalid_state");
+        return rejected("-".into(), "invalid_state").await;
     };
     let stored: Option<serde_json::Value> = sqlx::query_scalar(
         "DELETE FROM webauthn_states WHERE id = $1 AND challenge_type = 'oidc' AND expires_at > NOW() RETURNING state_data"
@@ -237,10 +244,10 @@ pub async fn callback(
     .await
     .unwrap_or(None);
     let Some(login_state) = stored.and_then(|v| serde_json::from_value::<LoginState>(v).ok()) else {
-        return fail("invalid_state");
+        return rejected("-".into(), "invalid_state").await;
     };
     if query.state.as_deref() != Some(login_state.state.as_str()) {
-        return fail("invalid_state");
+        return rejected("-".into(), "invalid_state").await;
     }
 
     if let Some(error) = query.error {
@@ -249,7 +256,7 @@ pub async fn callback(
     }
     // RFC 9207: reject responses issued by another authorization server (mix-up attack).
     if query.iss.is_some_and(|iss| iss != oidc.issuer) {
-        return fail("invalid_issuer");
+        return rejected("-".into(), "invalid_issuer").await;
     }
     let Some(code) = query.code else {
         return fail("idp_error");
@@ -291,7 +298,7 @@ pub async fn callback(
         }),
         Err(e) => {
             log::error!("OIDC ID token rejected: {}", e);
-            return fail("invalid_id_token");
+            return rejected("-".into(), "invalid_id_token").await;
         }
     };
 
@@ -299,7 +306,8 @@ pub async fn callback(
     let subject = match mitm_common::username::normalize(&subject) {
         Some(s) => s,
         None => {
-            let _ = repo.log_admin(&subject, "USER_LOGIN_OIDC", serde_json::json!({ "status": "rejected", "reason": "invalid_username" })).await;
+            // The audit reason is precise; the redirect keeps the existing error code.
+            repo.audit(&subject, crate::audit::action::USER_LOGIN_FAILED, crate::audit::login_failed("oidc", "invalid_username", client_ip)).await;
             return fail("unknown_user");
         }
     };
@@ -312,12 +320,10 @@ pub async fn callback(
         .unwrap_or(None);
     match is_active {
         None => {
-            let _ = repo.log_admin(&subject, "USER_LOGIN_OIDC", serde_json::json!({ "status": "rejected", "reason": "unknown_user" })).await;
-            return fail("unknown_user");
+            return rejected(subject, "unknown_user").await;
         }
         Some(false) => {
-            let _ = repo.log_admin(&subject, "USER_LOGIN_OIDC", serde_json::json!({ "status": "rejected", "reason": "inactive_user" })).await;
-            return fail("inactive_user");
+            return rejected(subject, "inactive_user").await;
         }
         Some(true) => {}
     }
@@ -369,7 +375,7 @@ pub async fn callback(
         return fail("server_error");
     }
 
-    let _ = repo.log_admin(&subject, "USER_LOGIN_OIDC", serde_json::json!({ "status": "success" })).await;
+    repo.audit(&subject, crate::audit::action::USER_LOGIN_OIDC, serde_json::json!({ "status": "success" })).await;
 
     let mut response = redirect(&format!("/auth/callback?handoff={}", handoff));
     if let Ok(cookie) = format!("{}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", STATE_COOKIE).parse() {

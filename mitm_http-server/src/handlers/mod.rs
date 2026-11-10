@@ -164,7 +164,7 @@ pub async fn authz_middleware(
                 "method": method,
                 "roles": auth.roles,
             });
-            let _ = repo.log_admin(&auth.username, "FORBIDDEN_ACCESS", details).await;
+            repo.audit(&auth.username, crate::audit::action::FORBIDDEN_ACCESS, details).await;
         }
 
         let err = ErrorResponse {

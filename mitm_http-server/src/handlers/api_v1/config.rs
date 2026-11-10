@@ -36,18 +36,20 @@ use crate::handlers::admin::SourceCredentialResponse;
 
 pub async fn handle_put_credentials(
     State(state): State<AppState>,
+    auth: axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Path(id): Path<String>,
     Json(mut payload): Json<SourceCredentialResponse>
 ) -> impl IntoResponse {
     payload.id = Some(id);
-    crate::handlers::admin::handle_post_credentials(State(state), Json(payload)).await
+    crate::handlers::admin::handle_post_credentials(State(state), auth, Json(payload)).await
 }
 
 pub async fn handle_put_delivery_targets(
     State(state): State<AppState>,
+    auth: axum::extract::Extension<mitm_common::ipc::AuthResponse>,
     Path(id): Path<String>,
     Json(mut payload): Json<crate::handlers::admin::DeliveryTargetResponse>
 ) -> impl IntoResponse {
     payload.id = Some(id);
-    crate::handlers::admin::handle_post_delivery_targets(State(state), Json(payload)).await
+    crate::handlers::admin::handle_post_delivery_targets(State(state), auth, Json(payload)).await
 }

@@ -22,6 +22,16 @@ impl Repository {
         Ok(())
     }
 
+    /// Writes an `admin_audit_logs` entry. A failed write is reported on STDOUT and in
+    /// `system_logs` instead of being dropped, so missing audit entries are noticed.
+    pub async fn audit(&self, username: &str, action: &str, details: serde_json::Value) {
+        if let Err(e) = self.log_admin(username, action, details).await {
+            let message = format!("Failed to write admin audit entry {} for {}: {}", action, username, e);
+            log::error!("{}", message);
+            let _ = self.log_system("ERROR", "http-server", &message).await;
+        }
+    }
+
     pub async fn log_admin(&self, username: &str, action: &str, details: serde_json::Value) -> Result<(), sqlx::Error> {
         sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
             .bind(username)

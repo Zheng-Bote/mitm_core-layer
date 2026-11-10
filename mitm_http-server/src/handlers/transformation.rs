@@ -210,9 +210,7 @@ pub async fn handle_post_topic_dependencies(
         .bind(&payload.required_sources)
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("UPSERT_TOPIC_DEPENDENCY").bind(format!("topic: {}", payload.topic))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TOPIC_DEPENDENCY, serde_json::json!({"topic": payload.topic})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -343,9 +341,7 @@ pub async fn handle_post_transformations(
         .bind(&params)
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("UPSERT_TRANSFORMATION").bind(format!("id: {}, name: {}", id, payload.name))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TRANSFORMATION, serde_json::json!({"id": id.to_string(), "name": payload.name})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -359,9 +355,7 @@ pub async fn handle_delete_transformations(
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_transformation WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("DELETE_TRANSFORMATION").bind(format!("id: {}", id))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_TRANSFORMATION, serde_json::json!({"id": id.to_string()})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -391,9 +385,7 @@ pub async fn handle_post_validations(
         .bind(&params)
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("UPSERT_VALIDATION").bind(format!("id: {}, name: {}", id, payload.name))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_VALIDATION, serde_json::json!({"id": id.to_string(), "name": payload.name})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -407,9 +399,7 @@ pub async fn handle_delete_validations(
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_validation WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("DELETE_VALIDATION").bind(format!("id: {}", id))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_VALIDATION, serde_json::json!({"id": id.to_string()})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -446,9 +436,7 @@ pub async fn handle_post_rules(
         .bind(&v_chain)
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("UPSERT_RULE").bind(format!("id: {}, source_field: {}", id, payload.source_field))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_RULE, serde_json::json!({"id": id.to_string(), "source_field": payload.source_field})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -462,9 +450,7 @@ pub async fn handle_delete_rules(
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_rule WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("DELETE_RULE").bind(format!("id: {}", id))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_RULE, serde_json::json!({"id": id.to_string()})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -502,9 +488,7 @@ pub async fn handle_post_sources(
         .bind(&payload.topic)
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("UPSERT_SOURCE").bind(format!("id: {}, name: {}", id, payload.name))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_SOURCE, serde_json::json!({"id": id.to_string(), "name": payload.name})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -518,9 +502,7 @@ pub async fn handle_delete_sources(
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_source WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("DELETE_SOURCE").bind(format!("id: {}", id))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_SOURCE, serde_json::json!({"id": id.to_string()})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -563,9 +545,7 @@ pub async fn handle_post_targets(
         .bind(payload.encrypted)
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("UPSERT_TARGET").bind(format!("id: {}, field: {}", id, payload.field_name))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TARGET, serde_json::json!({"id": id.to_string(), "field": payload.field_name})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
@@ -579,9 +559,7 @@ pub async fn handle_delete_targets(
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_target_field WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                .bind(&auth.username).bind("DELETE_TARGET").bind(format!("id: {}", id))
-                .execute(&state.repo.get().unwrap().pool).await;
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_TARGET, serde_json::json!({"id": id.to_string()})).await;
             StatusCode::OK.into_response()
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()

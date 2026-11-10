@@ -67,12 +67,7 @@ pub async fn handle_backup(State(state): State<AppState>, axum::extract::Extensi
         data.insert(table.to_string(), table_data);
     }
 
-    let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-        .bind(&auth.username)
-        .bind("BACKUP_CONFIG")
-        .bind(serde_json::json!({}))
-        .execute(&state.repo.get().unwrap().pool)
-        .await;
+    state.repo.get().unwrap().audit(&auth.username, crate::audit::action::BACKUP_CONFIG, serde_json::json!({})).await;
 
     let payload = BackupPayload {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -173,12 +168,7 @@ pub async fn handle_restore(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
     }
 
-    let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-        .bind(&auth.username)
-        .bind("RESTORE_CONFIG")
-        .bind(serde_json::json!({}))
-        .execute(&state.repo.get().unwrap().pool)
-        .await;
+    state.repo.get().unwrap().audit(&auth.username, crate::audit::action::RESTORE_CONFIG, serde_json::json!({})).await;
 
     StatusCode::OK.into_response()
 }
@@ -299,12 +289,7 @@ pub async fn handle_key_rotation(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
     }
 
-    let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-        .bind(&auth.username)
-        .bind("key_rotation_success")
-        .bind(serde_json::json!({"deactivated_count": deact}))
-        .execute(&state.repo.get().unwrap().pool)
-        .await;
+    state.repo.get().unwrap().audit(&auth.username, crate::audit::action::KEY_ROTATION_SUCCESS, serde_json::json!({"deactivated_count": deact})).await;
 
     (StatusCode::OK, "Key rotation successful").into_response()
 }
@@ -454,7 +439,8 @@ pub async fn handle_delivery_targets(State(state): axum::extract::State<crate::h
 
 pub async fn handle_post_credentials(
     State(state): axum::extract::State<crate::handlers::AppState>,
-    axum::Json(payload): axum::Json<SourceCredentialResponse>
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::Json(mut payload): axum::Json<SourceCredentialResponse>
 ) -> impl axum::response::IntoResponse {
     let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
     
@@ -483,7 +469,7 @@ pub async fn handle_post_credentials(
     };
  
 
-    let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, payload.config_payload.into_bytes(), &socket_path).await {
+    let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, std::mem::take(&mut payload.config_payload).into_bytes(), &socket_path).await {
         Ok(res) => res,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e}))).into_response(),
     };
@@ -492,8 +478,9 @@ pub async fn handle_post_credentials(
         let insert_query = "
             INSERT INTO source_credentials (source_name, connector_type, topic, config_payload, nonce, dek_id, is_active)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id
         ";
-        match sqlx::query(insert_query)
+        match sqlx::query_scalar::<_, uuid::Uuid>(insert_query)
             .bind(&payload.source_name)
             .bind(&payload.connector_type)
             .bind(&payload.topic)
@@ -501,8 +488,11 @@ pub async fn handle_post_credentials(
             .bind(nonce)
             .bind(dek_id)
             .bind(payload.is_active)
-            .execute(&state.repo.get().unwrap().pool).await {
-            Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response(),
+            .fetch_one(&state.repo.get().unwrap().pool).await {
+            Ok(id) => {
+                state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_CREDENTIAL, credential_audit_details(id, &payload, "create")).await;
+                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response()
+            },
             Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     } else {
@@ -526,15 +516,43 @@ pub async fn handle_post_credentials(
             .bind(payload.is_active)
             .bind(id_uuid)
             .execute(&state.repo.get().unwrap().pool).await {
-            Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response(),
+            Ok(_) => {
+                state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_CREDENTIAL, credential_audit_details(id_uuid, &payload, "update")).await;
+                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response()
+            },
             Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     }
 }
 
+/// Audit details of a source credential change; never contains `config_payload`.
+fn credential_audit_details(id: uuid::Uuid, payload: &SourceCredentialResponse, operation: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id.to_string(),
+        "source_name": payload.source_name,
+        "connector_type": payload.connector_type,
+        "topic": payload.topic,
+        "is_active": payload.is_active,
+        "operation": operation,
+    })
+}
+
+/// Audit details of a delivery target change; the endpoint URL without user info, query and fragment.
+fn target_audit_details(id: uuid::Uuid, payload: &DeliveryTargetResponse, operation: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id.to_string(),
+        "topic": payload.topic,
+        "adapter_type": payload.adapter_type,
+        "endpoint_url": crate::audit::redact_url(&payload.endpoint_url),
+        "is_active": payload.is_active,
+        "operation": operation,
+    })
+}
+
 pub async fn handle_post_delivery_targets(
     State(state): axum::extract::State<crate::handlers::AppState>,
-    axum::Json(payload): axum::Json<DeliveryTargetResponse>
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    axum::Json(mut payload): axum::Json<DeliveryTargetResponse>
 ) -> impl axum::response::IntoResponse {
     let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
     
@@ -563,7 +581,7 @@ pub async fn handle_post_delivery_targets(
     };
  
 
-    let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, payload.config_payload.into_bytes(), &socket_path).await {
+    let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, std::mem::take(&mut payload.config_payload).into_bytes(), &socket_path).await {
         Ok(res) => res,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e}))).into_response(),
     };
@@ -572,8 +590,9 @@ pub async fn handle_post_delivery_targets(
         let insert_query = "
             INSERT INTO delivery_targets (topic, adapter_type, endpoint_url, config_payload, nonce, dek_id, is_active)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id
         ";
-        match sqlx::query(insert_query)
+        match sqlx::query_scalar::<_, uuid::Uuid>(insert_query)
             .bind(&payload.topic)
             .bind(&payload.adapter_type)
             .bind(&payload.endpoint_url)
@@ -581,8 +600,11 @@ pub async fn handle_post_delivery_targets(
             .bind(nonce)
             .bind(dek_id)
             .bind(payload.is_active)
-            .execute(&state.repo.get().unwrap().pool).await {
-            Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response(),
+            .fetch_one(&state.repo.get().unwrap().pool).await {
+            Ok(id) => {
+                state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TARGET_CREDENTIAL, target_audit_details(id, &payload, "create")).await;
+                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response()
+            },
             Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     } else {
@@ -606,7 +628,10 @@ pub async fn handle_post_delivery_targets(
             .bind(payload.is_active)
             .bind(id_uuid)
             .execute(&state.repo.get().unwrap().pool).await {
-            Ok(_) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response(),
+            Ok(_) => {
+                state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TARGET_CREDENTIAL, target_audit_details(id_uuid, &payload, "update")).await;
+                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response()
+            },
             Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
         }
     }
@@ -624,12 +649,7 @@ pub async fn handle_delete_credentials(
     {
         Ok(result) => {
             if result.rows_affected() > 0 {
-                let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                    .bind(&auth.username)
-                    .bind("DELETE_CREDENTIAL")
-                    .bind(format!("id: {}", id))
-                    .execute(&state.repo.get().unwrap().pool)
-                    .await;
+                state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_CREDENTIAL, serde_json::json!({"id": id.to_string()})).await;
                 StatusCode::NO_CONTENT.into_response()
             } else {
                 StatusCode::NOT_FOUND.into_response()
@@ -651,12 +671,7 @@ pub async fn handle_delete_delivery_targets(
     {
         Ok(result) => {
             if result.rows_affected() > 0 {
-                let _ = sqlx::query("INSERT INTO admin_audit_logs (username, action, details) VALUES ($1, $2, $3)")
-                    .bind(&auth.username)
-                    .bind("DELETE_TARGET_CREDENTIAL")
-                    .bind(format!("id: {}", id))
-                    .execute(&state.repo.get().unwrap().pool)
-                    .await;
+                state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_TARGET_CREDENTIAL, serde_json::json!({"id": id.to_string()})).await;
                 StatusCode::NO_CONTENT.into_response()
             } else {
                 StatusCode::NOT_FOUND.into_response()
