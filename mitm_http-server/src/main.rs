@@ -25,22 +25,36 @@ async fn error_logging_middleware(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let method = req.method().clone();
-    let uri = req.uri().clone();
+    // Path only: query strings may carry secrets (e.g. the OIDC callback's code and state).
+    let path = req.uri().path().to_string();
     let res = next.run(req).await;
-    
-    if res.status().is_server_error() || res.status().is_client_error() {
-        let status = res.status();
-        let err_msg = format!("HTTP {} - {} {}", status, method, uri);
-        
+
+    if let Some((level, err_msg)) = http_error_log_entry(res.status(), &method, &path) {
         // Log to STDOUT immediately
-        log::error!("{}", err_msg);
-        
+        if level == "ERROR" {
+            log::error!("{}", err_msg);
+        } else {
+            log::warn!("{}", err_msg);
+        }
+
         // Only log to DB if UDS/DB connection is fully established
         if let Some(repo) = state.repo.get() {
-            let _ = repo.log_system("ERROR", "http-server", &err_msg).await;
+            let _ = repo.log_system(level, "http-server", &err_msg).await;
         }
     }
     res
+}
+
+/// Level and message for an error response: 5xx are server errors (`ERROR`), 4xx client errors (`WARN`).
+fn http_error_log_entry(status: axum::http::StatusCode, method: &axum::http::Method, path: &str) -> Option<(&'static str, String)> {
+    let level = if status.is_server_error() {
+        "ERROR"
+    } else if status.is_client_error() {
+        "WARN"
+    } else {
+        return None;
+    };
+    Some((level, format!("HTTP {} - {} {}", status, method, path)))
 }
 
 async fn readiness_middleware(
@@ -385,3 +399,34 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::http_error_log_entry;
+    use axum::http::{Method, StatusCode, Uri};
+
+    #[test]
+    fn client_errors_are_warnings() {
+        let entry = http_error_log_entry(StatusCode::NOT_FOUND, &Method::GET, "/dashboard");
+        assert_eq!(entry, Some(("WARN", "HTTP 404 Not Found - GET /dashboard".to_string())));
+    }
+
+    #[test]
+    fn server_errors_are_errors() {
+        let entry = http_error_log_entry(StatusCode::INTERNAL_SERVER_ERROR, &Method::GET, "/api/v1/iam/users");
+        assert_eq!(entry, Some(("ERROR", "HTTP 500 Internal Server Error - GET /api/v1/iam/users".to_string())));
+    }
+
+    #[test]
+    fn success_is_not_logged() {
+        assert_eq!(http_error_log_entry(StatusCode::OK, &Method::GET, "/"), None);
+        assert_eq!(http_error_log_entry(StatusCode::FOUND, &Method::GET, "/"), None);
+    }
+
+    #[test]
+    fn query_string_is_never_logged() {
+        let uri: Uri = "/api/v1/auth/oidc/callback?code=secret-code&state=secret-state".parse().unwrap();
+        let (_, message) = http_error_log_entry(StatusCode::BAD_REQUEST, &Method::GET, uri.path()).unwrap();
+        assert_eq!(message, "HTTP 400 Bad Request - GET /api/v1/auth/oidc/callback");
+        assert!(!message.contains("secret"));
+    }
+}

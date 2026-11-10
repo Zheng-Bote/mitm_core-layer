@@ -1,0 +1,43 @@
+Spec: Feature Issue 84 - HTTP 4xx as WARN and without Query String
+
+Purpose:
+  Log HTTP client errors of mitm_http-server as `WARN` instead of `ERROR` and never log query strings, so `system_logs` errors are real server errors and no OIDC codes or other query parameters are stored. Issue: https://github.com/Zheng-Bote/mitm_core-layer/issues/84
+
+Platform: Rust/Linux
+
+References:
+  ../../../core-layer.sdd
+  ../../../mitm_http-server/mitm_http-server.sdd
+
+Owns:
+  ./**
+
+Can modify:
+  /mitm_http-server/src/main.rs
+  /mitm_http-server/Cargo.toml
+  /mitm_http-server/CHANGELOG.md
+  /mitm_http-server/README.md
+
+Must:
+  An HTTP 5xx response is written as `HTTP <status> - <method> <path>` with level `ERROR` to system_logs and logged with `log::error!`.
+  An HTTP 4xx response is written as `HTTP <status> - <method> <path>` with level `WARN` to system_logs and logged with `log::warn!`.
+  Only the URI path is logged, never the query string.
+
+Must not:
+  Change other `log_system` calls, the response, or the API.
+
+Tasks:
+  [x] #1 Derive level and message from status, method and path in `error_logging_middleware`.
+  [x] #2 Unit tests for 4xx, 5xx and query-string stripping.
+  [x] #3 Version 3.2.1, CHANGELOG.
+
+Done when:
+  `cargo build` and `cargo test` of mitm-http-server succeed.
+
+Scenario: client error
+  Given a request `GET /dashboard?x=1` is answered with HTTP 404
+  Then system_logs contains `HTTP 404 Not Found - GET /dashboard` with level `WARN`
+
+Scenario: failed OIDC callback
+  Given `GET /api/v1/auth/oidc/callback?code=abc&state=xyz` is answered with HTTP 400
+  Then neither system_logs nor STDOUT contain `abc` or `xyz`
