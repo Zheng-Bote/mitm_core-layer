@@ -1,0 +1,39 @@
+Spec: Feature Issue 91 - Cleanup Orphaned Program Runs on Scheduler Startup
+
+Platform: Rust/Linux
+
+Purpose:
+  Update orphaned `program_runs` entries whose `exit_code` or `success` is `NULL` to `exit_code = 2`, `success = false`, and `finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)` when `mitm_scheduler-server` starts up. Issue: https://github.com/Zheng-Bote/mitm_core-layer/issues/91
+
+References:
+  ../../core-layer.sdd
+  ../architecture.sdd
+
+Owns:
+  ./**
+
+Can modify:
+  /mitm_scheduler-server/src/db.rs
+  /mitm_scheduler-server/src/main.rs
+  /mitm_scheduler-server/Cargo.toml
+  /mitm_scheduler-server/CHANGELOG.md
+
+Must:
+  On startup of `mitm_scheduler-server` (after binding the singleton UDS listener and before starting `@CronScheduler`), `@Repository.cleanup_unfinished_program_runs` updates every row in `program_runs` where `exit_code IS NULL OR success IS NULL` to `exit_code = 2`, `success = false`, and `finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)`.
+  When one or more rows are updated, `mitm_scheduler-server` logs the count to STDOUT and `system_logs` (`WARN`, component `scheduler-server`).
+
+Must not:
+  Modify `program_runs` rows before the singleton UDS check confirms no other scheduler instance is running.
+
+Tasks:
+  [x] #1 Add `@Repository.cleanup_unfinished_program_runs` in `mitm_scheduler-server/src/db.rs`.
+  [x] #2 Call `@Repository.cleanup_unfinished_program_runs` during startup in `mitm_scheduler-server/src/main.rs` after binding the UDS socket.
+  [x] #3 Bump `mitm-scheduler-server` version to `1.3.6` and update `CHANGELOG.md`.
+
+Done when:
+  `cargo test` and `cargo build --release` succeed across the `core-layer` workspace.
+
+Scenario: orphaned program_runs row at startup
+  Given `program_runs` contains a row with `exit_code` `NULL` or `success` `NULL`
+  When `mitm_scheduler-server` starts and acquires the UDS listener
+  Then that row has `exit_code = 2`, `success = false`, and a non-null `finished_at`

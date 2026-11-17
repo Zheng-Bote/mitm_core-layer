@@ -142,6 +142,19 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn cleanup_unfinished_program_runs(&self) -> Result<u64, Box<dyn Error + Send + Sync>> {
+        let res = sqlx::query(
+            "UPDATE program_runs
+             SET exit_code = 2,
+                 success = false,
+                 finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)
+             WHERE exit_code IS NULL OR success IS NULL",
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
 
 
     pub async fn get_program_by_name(&self, name: &str) -> Result<ScheduledProgram, Box<dyn Error + Send + Sync>> {

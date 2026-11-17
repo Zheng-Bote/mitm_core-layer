@@ -69,6 +69,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("{}", success_msg);
     let _ = repo.log_system("INFO", "scheduler-server", &success_msg).await;
 
+    match repo.cleanup_unfinished_program_runs().await {
+        Ok(count) if count > 0 => {
+            let msg = format!(
+                "Cleaned up {} orphaned program_runs entries (set exit_code = 2, success = false)",
+                count
+            );
+            log::warn!("{}", msg);
+            let _ = repo.log_system("WARN", "scheduler-server", &msg).await;
+        }
+        Ok(_) => {}
+        Err(e) => {
+            let err_msg = format!("Failed to clean up unfinished program_runs on startup: {}", e);
+            log::error!("{}", err_msg);
+            let _ = repo.log_system("ERROR", "scheduler-server", &err_msg).await;
+        }
+    }
+
     let socket_path_str = socket_path.to_string_lossy().to_string();
     let orchestrator = Arc::new(JobOrchestrator::new(repo.clone(), socket_path_str));
     let cron_scheduler = CronScheduler::new(repo.clone(), orchestrator.clone());
