@@ -24,7 +24,7 @@ use openidconnect::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zeroize::Zeroizing;
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::{AppState, response::{ApiError, ApiResponse, default_code_and_title}};
 use super::auth_guard;
 
 const STATE_COOKIE: &str = "__Host-mitm_oidc";
@@ -133,8 +133,8 @@ pub struct ExchangeResp {
 }
 
 fn json_error(status: StatusCode, title: &str, detail: &str) -> Response {
-    let err = ErrorResponse { errors: vec![JsonApiError { status: status.as_str().into(), title: title.into(), detail: Some(detail.into()) }] };
-    (status, Json(err)).into_response()
+    let (code, _) = default_code_and_title(status);
+    ApiError::new(status, code, title, detail).into_response()
 }
 
 fn redirect(location: &str) -> Response {
@@ -217,7 +217,7 @@ fn state_cookie(headers: &HeaderMap) -> Option<Uuid> {
 
 // GET /api/v1/auth/oidc/config
 pub async fn get_config(State(state): State<AppState>) -> Response {
-    Json(OidcConfigResp { enabled: state.oidc.is_some() }).into_response()
+    ApiResponse::ok(OidcConfigResp { enabled: state.oidc.is_some() }).into_response()
 }
 
 // GET /api/v1/auth/oidc/login
@@ -481,7 +481,7 @@ pub async fn exchange(
     .await
     .unwrap_or(None);
     match stored.as_ref().and_then(|v| v["session_token"].as_str()) {
-        Some(token) => Json(ExchangeResp { session_token: token.to_string() }).into_response(),
+        Some(token) => ApiResponse::ok(ExchangeResp { session_token: token.to_string() }).into_response(),
         None => json_error(StatusCode::UNAUTHORIZED, "Unauthorized", "Sign-in link is invalid or expired. Please sign in again."),
     }
 }

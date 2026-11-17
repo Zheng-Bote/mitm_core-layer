@@ -10,7 +10,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 use flatbuffers::FlatBufferBuilder;
 use crate::schematas;
 
@@ -43,12 +43,11 @@ pub async fn handle_dlq(
 
     let sql = "SELECT id, package_id, payload, error_code, error_message, failed_at, resolved, resolved_at FROM dead_letter_queue ORDER BY failed_at DESC LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, DlqEntry>(sql).bind(limit).bind(offset).fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(entries) => (StatusCode::OK, Json(entries)).into_response(),
-        Err(e) => {
-            let err_msg = format!("Database Error: {}", e);
-            log::error!("{}", err_msg);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Ok(entries) => {
+            let count = entries.len();
+            ApiResponse::ok(entries).with_count(count).with_page(limit, offset).into_response()
         }
+        Err(e) => ApiError::internal_logged("Failed to load DLQ entries", e).into_response(),
     }
 }
 
@@ -102,11 +101,7 @@ pub async fn handle_dlq_bin(
                 builder.finished_data().to_vec()
             ).into_response()
         },
-        Err(e) => {
-            let err_msg = format!("Database Error: {}", e);
-            log::error!("{}", err_msg);
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Err(e) => ApiError::internal_logged("Failed to load DLQ entries", e).into_response(),
     }
 }
 
@@ -131,19 +126,15 @@ pub async fn handle_requeue(
     }
 
     if ids.is_empty() {
-        return (StatusCode::BAD_REQUEST, "Missing ids in payload or id in query").into_response();
+        return ApiError::bad_request("Missing ids in payload or id in query").into_response();
     }
 
     let sql = "UPDATE dead_letter_queue SET resolved = true, resolved_at = NOW() WHERE id = ANY($1) RETURNING id";
     match sqlx::query(sql).bind(&ids).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(rows) => {
             let updated: Vec<uuid::Uuid> = rows.iter().map(|r| r.get(0)).collect();
-            (StatusCode::OK, Json(serde_json::json!({ "requeued": updated }))).into_response()
+            ApiResponse::updated(format!("{} DLQ entries requeued", updated.len()), Some(serde_json::json!({ "requeued": updated }))).into_response()
         },
-        Err(e) => {
-            let err_msg = format!("Database Error: {}", e);
-            log::error!("{}", err_msg);
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Err(e) => ApiError::internal_logged("Failed to requeue DLQ entries", e).into_response(),
     }
 }

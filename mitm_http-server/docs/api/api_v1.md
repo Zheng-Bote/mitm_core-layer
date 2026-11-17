@@ -2,7 +2,49 @@
 
 The v1 API introduces a robust, resource-oriented RESTful architecture with Dynamic Authorization (AuthZ) using Casbin and Content Negotiation.
 
-> Applies to `mitm_http-server` **2.0.0** and later. Breaking change in 2.0.0: `POST /api/v1/auth/session` was removed; sessions are issued only by the WebAuthn ceremonies (see [2.7 Auth API](#27-auth-api)).
+> Applies to `mitm_http-server` **3.5.0** and later. Breaking change in 3.5.0: every JSON response uses the [response envelope](#response-envelope) (payload in `data`), and the RPC-style routes `POST /api/v1/iam/assign-role`, `POST`/`DELETE /api/v1/config/transformations/topic-dependencies` and the bulk upsert `POST /api/v1/jobs` were replaced by resource routes ([#93](https://github.com/Zheng-Bote/mitm_core-layer/issues/93)). Breaking change in 2.0.0: `POST /api/v1/auth/session` was removed; sessions are issued only by the WebAuthn ceremonies (see [2.7 Auth API](#27-auth-api)).
+
+## Response Envelope
+Every JSON response under `/api/v1/*` – success and error – is one object with the same fields:
+
+```json
+{
+  "id": "01933a7c-8d42-7f00-9a1b-4c5d6e7f8091",
+  "status": 200,
+  "code": "OK",
+  "title": "Success",
+  "detail": null,
+  "meta": { "timestamp": "2026-11-17T11:30:00+00:00", "version": "3.5.0", "count": 2 },
+  "data": [ ... ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Request id (UUID), identical to the `X-Request-ID` response header. A valid UUID sent as `X-Request-ID` request header is reused, otherwise the server generates one. |
+| `status` | HTTP status code of the response. |
+| `code` | Machine-readable code, see table below. |
+| `title` | Short human-readable summary. |
+| `detail` | Explanation of this occurrence or `null`. `500` responses carry only a generic text; the cause (SQL, IPC, I/O) is logged server-side under the request id. |
+| `meta` | `timestamp` (UTC, RFC 3339) and server `version`; collections add `count`, paginated collections also `limit` and `offset`. |
+| `data` | Resource payload (object or array) on `2xx`; `null` on errors and on confirmations without body (e.g. `DELETED`). |
+
+| `status` | `code` | When |
+| --- | --- | --- |
+| `200` | `OK` / `UPDATED` / `DELETED` | Read / update / delete succeeded |
+| `201` | `CREATED` | Resource created; `Location` header points to it |
+| `202` | `ACCEPTED` | Asynchronous operation handed to the scheduler (job execute/stop, file upload) |
+| `400` | `BAD_REQUEST` | Malformed JSON, missing field or parameter, invalid UUID |
+| `401` | `AUTH_REQUIRED` | Missing, invalid or expired session |
+| `403` | `RBAC_FORBIDDEN` / `USER_INACTIVE` | Denied by RBAC / account inactive |
+| `404` | `NOT_FOUND` | Unknown resource |
+| `409` | `CONFLICT` | Resource already exists |
+| `422` | `VALIDATION_FAILED` | Well-formed request with invalid content (wrong field type, invalid username, cron expression, base64, backup version) |
+| `429` | `RATE_LIMITED` | Rate limit exceeded |
+| `500` | `INTERNAL_ERROR` | Server error |
+| `503` | `SERVICE_UNAVAILABLE` | Core components still initializing |
+
+Exceptions: FlatBuffers responses (`Accept: application/x-flatbuffers`, see [3.](#3-content-negotiation-flatbuffers-vs-json)) stay binary on `200` (errors still use the envelope), `oidc/login` and `oidc/callback` answer with redirects, and `/health`, `/` and static assets are outside `/api/v1`.
 
 ## 1. Authentication (AuthN) & Authorization (AuthZ)
 All endpoints under `/api/v1/` (except public endpoints like `/api/v1/auth/webauthn/*`, `/api/v1/auth/oidc/*`, `/api/v1/auth/bootstrap/status`, `/api/v1/system/info`, `/api/v1/system/time`) are guarded by two layers of middleware:
@@ -48,9 +90,15 @@ Job listing and execution control.
 | API-Endpoint | Method | required role |
 | --- | --- | --- |
 | `/api/v1/jobs` | GET, POST | VIEWER (GET), ADMIN (POST) |
-| `/api/v1/jobs/:name` | DELETE | ADMIN |
+| `/api/v1/jobs/:name` | PUT, DELETE | ADMIN |
 | `/api/v1/jobs/:name/stop` | POST | USER |
 | `/api/v1/jobs/:name/execute` | POST | USER |
+| `/api/v1/jobs/upload/source_file` | POST | ADMIN |
+
+- `POST /api/v1/jobs` creates one job from `{"name", "command", "args", "cron_expr", "enabled", "restart_on_exit"}` and answers `201` with `Location: /api/v1/jobs/<name>`, `409` if the name exists.
+- `PUT /api/v1/jobs/:name` replaces the job's `command`, `args`, `cron_expr`, `enabled` and `restart_on_exit` (`404` for an unknown job).
+- An empty `name` or `command` or an invalid `cron_expr` (5 or 6 fields) yields `422`. After create, update and delete the scheduler reloads its jobs.
+- `stop`, `execute` and `upload/source_file` (multipart `file`, optional `topic`) answer `202 Accepted`: the scheduler performs them asynchronously.
 
 ### 2.3 Logs API
 Access to audit trails and error logs (Supports Content Negotiation).
@@ -88,8 +136,14 @@ Data source, transformation, and target configurations.
 | `/api/v1/config/transformations/:id` | DELETE | ADMIN |
 | `/api/v1/config/transformations/validations` | GET, POST | ADMIN |
 | `/api/v1/config/transformations/validations/:id` | DELETE | ADMIN |
-| `/api/v1/config/transformations/topic-dependencies`| GET, POST, DELETE | ADMIN |
+| `/api/v1/config/transformations/topic-dependencies` | GET | ADMIN |
+| `/api/v1/config/transformations/topic-dependencies/:topic` | PUT, DELETE | ADMIN |
 | `/api/v1/config/transformations/auto-map` | POST | ADMIN |
+
+- `POST /api/v1/config/credentials` and `POST /api/v1/config/targets` answer `201` with `{"id": "<uuid>"}` and a `Location` header; `PUT` on `/:id` answers `200` (`UPDATED`), `404` for an unknown id.
+- `PUT /api/v1/config/transformations/topic-dependencies/:topic` with `{"required_sources": ["..."]}` creates or replaces the dependency of the topic and returns it.
+- The `POST` endpoints of sources, targets, rules, transformations and validations create (without `id`) or update (with `id`) and return `{"id": "<uuid>"}`.
+- `DELETE` endpoints answer `200` (`DELETED`), `404` for an unknown id or topic.
 
 ### 2.6 IAM API
 Identity & Access Management (Users & Roles).
@@ -99,8 +153,8 @@ Identity & Access Management (Users & Roles).
 | `/api/v1/iam/users` | GET, POST | ADMIN |
 | `/api/v1/iam/users/:id` | GET, PUT, DELETE | ADMIN |
 | `/api/v1/iam/users/:id/session` | DELETE | ADMIN |
+| `/api/v1/iam/users/:id/roles` | PUT | ADMIN |
 | `/api/v1/iam/roles` | GET | ADMIN |
-| `/api/v1/iam/assign-role` | POST | ADMIN |
 
 #### Usernames
 Usernames are case-insensitive. Every username received by the server (`POST /api/v1/iam/users`, `webauthn/register/start`, `webauthn/login/start`, the OIDC `sub` claim and configured admins) is trimmed and converted to uppercase; `q225265` and `Q225265` denote the same user `Q225265`. After this conversion a username must match `^[A-Z0-9._-]{1,64}$`.
@@ -125,9 +179,9 @@ Usernames are case-insensitive. Every username received by the server (`POST /ap
 
 `POST /api/v1/iam/users` accepts `username`, `password`, `first_name`, `last_name`, `department`, `email` and `is_active`; `PUT /api/v1/iam/users/:id` accepts `first_name`, `last_name`, `department`, `email` and `is_active` and changes only the fields that are present. An `email` that is empty after trimming is stored as `null`. Note that an OIDC login overwrites `email` (and the names) with filled IdP claims.
 
-`POST /api/v1/iam/users` answers `201 Created` with the new user's id (`{"id": 7}`), `400 Bad Request` for an invalid username and `409 Conflict` if the username already exists (in any case).
+`POST /api/v1/iam/users` answers `201 Created` with the new user's id (`data: {"id": 7}`) and `Location: /api/v1/iam/users/7`, `422` for an invalid username and `409 Conflict` if the username already exists (in any case). `PUT` and `DELETE` on `/api/v1/iam/users/:id` answer `404` for an unknown id.
 
-`POST /api/v1/iam/assign-role` with `{"user_id": 7, "role_ids": [1, 3]}` replaces all role assignments of the user (stored encrypted) and writes an `ASSIGN_ROLES` entry to `admin_audit_logs`; an empty `role_ids` removes all roles. Role ids and names come from `GET /api/v1/iam/roles`.
+`PUT /api/v1/iam/users/:id/roles` with `{"role_ids": [1, 3]}` replaces all role assignments of the user (stored encrypted), returns `data: {"role_ids": [1, 3]}` and writes an `ASSIGN_ROLES` entry to `admin_audit_logs`; an empty `role_ids` removes all roles, an unknown user yields `404`. Role ids and names come from `GET /api/v1/iam/roles`.
 
 ### 2.7 Auth API
 Endpoints for passkey (WebAuthn) and OAuth2/OIDC authentication and the currently authenticated user's session.
@@ -185,13 +239,13 @@ IdP tokens are neither stored nor returned to the browser. Callback failures red
 #### Error Responses
 | Status | Endpoint | Cause |
 | --- | --- | --- |
-| `400` | `register/start`, `login/start` | Username does not match `^[A-Z0-9._-]{1,64}$` (after uppercasing) |
+| `422` | `register/start`, `login/start` | Username does not match `^[A-Z0-9._-]{1,64}$` (after uppercasing) |
 | `400` | `register/start` | `bootstrap_token` missing while no user exists |
 | `400` | `*/finish` | Ceremony expired or not found, registration verification failed |
 | `400` | `login/start` | No passkey registered for the user |
 | `401` | `login/finish` | Passkey verification failed |
 | `403` | `register/start` | Invalid `bootstrap_token` |
-| `403` | `login/start`, `login/finish` | Account inactive (pending administrator approval) |
+| `403` (`USER_INACTIVE`) | `login/start`, `login/finish` | Account inactive (pending administrator approval) |
 | `404` | `login/start` | User not found |
 | `401` | `oidc/exchange` | Handoff id invalid, expired or already used |
 | `404` | `oidc/*` | OIDC not configured |
@@ -225,7 +279,8 @@ Server-side action names are UPPER_SNAKE_CASE. Entries written before mitm-http-
 ## 3. Content Negotiation (FlatBuffers vs JSON)
 Endpoints that handle large data sets (e.g., audit logs, transformation errors, DLQ) examine the `Accept` HTTP header:
 - If `Accept: application/x-flatbuffers`, the server responds with a FlatBuffers binary payload.
-- Otherwise (default), the server responds with a standard JSON payload.
+- Otherwise (default), the server responds with the JSON [response envelope](#response-envelope).
+- Errors always use the JSON envelope.
 
 ### Negotiated Endpoints:
 - `GET /api/v1/logs/system`

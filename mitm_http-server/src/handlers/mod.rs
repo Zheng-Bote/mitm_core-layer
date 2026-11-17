@@ -15,6 +15,7 @@ pub mod logs;
 pub mod api_v1;
 pub mod dlq;
 pub mod transformation;
+pub mod response;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -30,19 +31,6 @@ pub struct AppState {
     pub auth_rate_limiter: Arc<api_v1::auth_guard::RateLimiter>,
     /// OIDC sign-in; `None` when the `OIDC_*` environment variables are not set.
     pub oidc: Option<Arc<api_v1::oidc::Oidc>>,
-}
-
-#[derive(serde::Serialize)]
-pub struct JsonApiError {
-    pub status: String,
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-pub struct ErrorResponse {
-    pub errors: Vec<JsonApiError>,
 }
 
 pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppState>) -> axum::response::Response {
@@ -86,7 +74,7 @@ pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppSt
             { "name": "mitm_scheduler-server", "version": sched_version }
         ]
     });
-    axum::response::IntoResponse::into_response(axum::Json(info))
+    axum::response::IntoResponse::into_response(response::ApiResponse::ok(info))
 }
 
 async fn handle_health(State(state): State<AppState>) -> axum::response::Response {
@@ -104,7 +92,7 @@ pub async fn handle_time() -> axum::response::Response {
         "timestamp": now.timestamp(),
         "timezone": now.offset().to_string(),
     });
-    axum::response::IntoResponse::into_response(axum::Json(res))
+    axum::response::IntoResponse::into_response(response::ApiResponse::ok(res))
 }
 
 pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {
@@ -167,13 +155,6 @@ pub async fn authz_middleware(
             repo.audit(&auth.username, crate::audit::action::FORBIDDEN_ACCESS, details).await;
         }
 
-        let err = ErrorResponse {
-            errors: vec![JsonApiError {
-                status: "403".into(),
-                title: "Forbidden".into(),
-                detail: Some("You do not have permission to access this resource".into()),
-            }],
-        };
-        (axum::http::StatusCode::FORBIDDEN, axum::Json(err)).into_response()
+        response::ApiError::forbidden("You do not have permission to access this resource").into_response()
     }
 }

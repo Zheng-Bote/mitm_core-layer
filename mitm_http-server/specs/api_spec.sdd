@@ -1,12 +1,32 @@
 Spec: HTTP Server API
-Purpose: Defines the API contracts and endpoints for the http-server.
+
+Platform: Rust/Axum/HTTP
+
+Purpose:
+  Define the Richardson Maturity Model Level 2 REST contract and unified JSON:API-derived response envelope for all HTTP API endpoints of `mitm_http-server` (`v3+`).
 
 Must:
-  All error responses MUST be strictly formatted as JSON:API error payloads (`{"errors": [{"status": "...", "title": "...", "detail": "..."}]}`). Plain-text error responses are forbidden.
-  Session tokens MUST be issued only by `/api/v1/auth/webauthn/login/finish`, by the bootstrap `/api/v1/auth/webauthn/register/finish` and by `/api/v1/auth/oidc/callback`, as defined in /specs/features/webauthn-only-auth/webauthn-only-auth.sdd and /specs/features/oidc-authentication/oidc-authentication.sdd.
-  `/api/v1/auth/oidc/login` and `/api/v1/auth/oidc/callback` are browser navigation endpoints and answer with redirects; failures redirect to `/login?sso_error=<code>` instead of a JSON:API error.
-  The `/api/v1/auth/webauthn/login/start` and `/api/v1/auth/webauthn/login/finish` endpoints MUST reject users whose `is_active` is false with 403 Forbidden.
-  The `/api/v1/auth/me` endpoint MUST return `first_name`, `last_name`, `department`, `email`, `is_active`, and `client_ip`.
-  `GET /api/v1/iam/users` and `GET /api/v1/iam/users/:id` return the user fields defined in /specs/features/oidc-profile-sync/oidc-profile-sync.sdd; `GET /api/v1/iam/users/:id` adds `role_ids`.
-  `POST /api/v1/iam/users` answers `201 Created` with the JSON body `{"id": <new user id>}`.
-  The `/api/v1/auth/webauthn/register/start` and `/api/v1/auth/webauthn/login/start` endpoints MUST return `rp_origin`, the origin the server validates `clientDataJSON.origin` against, so native clients can build matching client data.
+  All JSON API endpoints under `/api/v1/*` conform to Richardson Maturity Model Level 2: resource-oriented noun paths, path parameters for resource identity, standard HTTP methods (`GET`, `POST`, `PUT`, `DELETE`), and semantic HTTP status codes (`200`, `201`, `202`, `400`, `401`, `403`, `404`, `409`, `422`, `429`, `500`, `503`).
+  Every JSON API response (`2xx`, `4xx`, and `5xx`) returns a single top-level JSON object (@ApiResponse) with the fields `id`, `status`, `code`, `title`, `detail`, `meta`, and `data`.
+  The `id` field contains a unique per-request UUID string matching the `X-Request-ID` HTTP response header.
+  The `status` field contains the numeric HTTP status code (`u16`) matching the HTTP response status.
+  The `code` field contains a machine-readable `UPPER_SNAKE_CASE` status or error code (`OK`, `CREATED`, `ACCEPTED`, `UPDATED`, `DELETED`, `BAD_REQUEST`, `AUTH_REQUIRED`, `RBAC_FORBIDDEN`, `USER_INACTIVE`, `NOT_FOUND`, `CONFLICT`, `VALIDATION_FAILED`, `RATE_LIMITED`, `INTERNAL_ERROR`, `SERVICE_UNAVAILABLE`).
+  The `title` field contains a short human-readable summary of the outcome or error category.
+  The `detail` field contains a context-specific explanation string for the occurrence, or `null` when not applicable.
+  The `meta` field contains a metadata object with at least `timestamp` (UTC RFC3339) and `version`, plus optional collection pagination fields (`count`, `limit`, `offset`).
+  The `data` field contains the resource payload (object or array) on `2xx` responses, or `null` on `4xx`/`5xx` error responses and status-only confirmations.
+  Resource creation endpoints (`POST /api/v1/iam/users`, `POST /api/v1/config/credentials`, `POST /api/v1/config/targets`, `POST /api/v1/jobs`) respond with HTTP `201 Created`, a `Location` header, `code` set to `CREATED`, and the created resource identifier in `data`.
+  Asynchronous job and upload triggers delegated to `mitm_scheduler-server` (`POST /api/v1/jobs/:name/execute`, `POST /api/v1/jobs/:name/stop`, `POST /api/v1/jobs/upload/source_file`) respond with HTTP `202 Accepted` and `code` set to `ACCEPTED`.
+  User role replacement is exposed as the resource endpoint `PUT /api/v1/iam/users/:id/roles` with body `{"role_ids": [...]}`.
+  Single-resource topic dependency updates and deletions use `PUT /api/v1/config/transformations/topic-dependencies/:topic` and `DELETE /api/v1/config/transformations/topic-dependencies/:topic`.
+  Single-resource job updates use `PUT /api/v1/jobs/:name`.
+  Binary content negotiation (`Accept: application/x-flatbuffers`) on `/api/v1/logs/*` and `/api/v1/dlq` returns `application/octet-stream` on `200 OK`, while `4xx`/`5xx` errors on those endpoints still return the JSON @ApiResponse envelope.
+  `/api/v1/auth/oidc/login` and `/api/v1/auth/oidc/callback` are browser navigation endpoints that respond with HTTP `302`/`303` redirects; failures redirect to `/login?sso_error=<code>`.
+  Session tokens are issued only by `/api/v1/auth/webauthn/login/finish`, by the bootstrap `/api/v1/auth/webauthn/register/finish`, and by `/api/v1/auth/oidc/exchange`.
+  `/api/v1/auth/webauthn/login/start` and `/api/v1/auth/webauthn/login/finish` reject users whose `is_active` is `false` with HTTP `403 Forbidden` and `code` set to `USER_INACTIVE`.
+  `/api/v1/auth/me` returns `first_name`, `last_name`, `department`, `email`, `is_active`, and `client_ip` inside `data`.
+  `/api/v1/auth/webauthn/register/start` and `/api/v1/auth/webauthn/login/start` include `rp_origin` inside `data`.
+
+Must not:
+  Return plain-text error responses or un-enveloped JSON payloads on `/api/v1/*` JSON endpoints.
+  Expose SQL query errors, stack traces, or secret values inside `detail`.

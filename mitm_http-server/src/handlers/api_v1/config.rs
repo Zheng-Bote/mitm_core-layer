@@ -26,8 +26,7 @@ pub fn routes() -> Router<AppState> {
         .route("/transformations/validations", post(crate::handlers::transformation::handle_post_validations))
         .route("/transformations/validations/:id", delete(crate::handlers::transformation::handle_delete_validations))
         .route("/transformations/topic-dependencies", get(crate::handlers::transformation::handle_topic_dependencies))
-        .route("/transformations/topic-dependencies", post(crate::handlers::transformation::handle_post_topic_dependencies))
-        .route("/transformations/topic-dependencies", delete(crate::handlers::transformation::handle_delete_topic_dependencies))
+        .route("/transformations/topic-dependencies/:topic", put(crate::handlers::transformation::handle_put_topic_dependency).delete(crate::handlers::transformation::handle_delete_topic_dependency))
         .route("/transformations/auto-map", post(crate::handlers::transformation::handle_auto_map))
 }
 

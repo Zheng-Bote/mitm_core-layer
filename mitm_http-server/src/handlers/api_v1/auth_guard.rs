@@ -17,7 +17,7 @@ use axum::{
     Json,
 };
 use zeroize::Zeroizing;
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::AppState;
 
 pub const MIN_BOOTSTRAP_TOKEN_LEN: usize = 32;
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
@@ -71,7 +71,10 @@ pub async fn rate_limit_middleware(
         return next.run(req).await;
     }
     log::warn!("Rate limit exceeded on {} for client {}", req.uri().path(), ip);
-    let err = ErrorResponse { errors: vec![JsonApiError { status: "429".into(), title: "Too Many Requests".into(), detail: Some("Too many authentication requests. Please retry later.".into()) }] };
+    let err = crate::handlers::response::ApiError::too_many_requests(
+        "Too many authentication requests. Please retry later.",
+    )
+    .into_envelope(uuid::Uuid::new_v4().to_string());
     (StatusCode::TOO_MANY_REQUESTS, [(RETRY_AFTER, RATE_LIMIT_WINDOW.as_secs().to_string())], Json(err)).into_response()
 }
 

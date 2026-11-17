@@ -6,12 +6,12 @@ use axum::{
     extract::{State, Query},
     http::{StatusCode, header},
     response::IntoResponse,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::QueryBuilder;
 
 use crate::handlers::AppState;
+use crate::handlers::response::{ApiError, ApiResponse};
 use crate::schematas;
 use flatbuffers::FlatBufferBuilder;
 
@@ -97,12 +97,12 @@ pub async fn handle_system_logs(
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
     match get_system_logs(&state, &query).await {
-        Ok(logs) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "application/json"), (header::CONTENT_DISPOSITION, "attachment; filename=system_logs.json")],
-            Json(logs).into_response()
-        ).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(logs) => {
+            let count = logs.len();
+            let body = ApiResponse::ok(logs).with_count(count).with_page(query.limit.unwrap_or(1000), query.offset.unwrap_or(0));
+            ([(header::CONTENT_DISPOSITION, "attachment; filename=system_logs.json")], body).into_response()
+        }
+        Err(e) => ApiError::internal_logged("Failed to load logs", e).into_response()
     }
 }
 
@@ -142,7 +142,7 @@ pub async fn handle_system_logs_bin(
                 builder.finished_data().to_vec()
             ).into_response()
         },
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Err(e) => ApiError::internal_logged("Failed to load logs", e).into_response()
     }
 }
 
@@ -191,12 +191,12 @@ pub async fn handle_job_audit_logs(
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
     match get_job_audit_logs(&state, &query).await {
-        Ok(logs) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "application/json"), (header::CONTENT_DISPOSITION, "attachment; filename=job_audit_logs.json")],
-            Json(logs).into_response()
-        ).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(logs) => {
+            let count = logs.len();
+            let body = ApiResponse::ok(logs).with_count(count).with_page(query.limit.unwrap_or(1000), query.offset.unwrap_or(0));
+            ([(header::CONTENT_DISPOSITION, "attachment; filename=job_audit_logs.json")], body).into_response()
+        }
+        Err(e) => ApiError::internal_logged("Failed to load logs", e).into_response()
     }
 }
 
@@ -235,7 +235,7 @@ pub async fn handle_job_audit_logs_bin(
                 builder.finished_data().to_vec()
             ).into_response()
         },
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Err(e) => ApiError::internal_logged("Failed to load logs", e).into_response()
     }
 }
 
@@ -284,12 +284,12 @@ pub async fn handle_admin_audit_logs(
     Query(query): Query<LogQuery>,
 ) -> impl IntoResponse {
     match get_admin_audit_logs(&state, &query).await {
-        Ok(logs) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "application/json"), (header::CONTENT_DISPOSITION, "attachment; filename=admin_audit_logs.json")],
-            Json(logs).into_response()
-        ).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(logs) => {
+            let count = logs.len();
+            let body = ApiResponse::ok(logs).with_count(count).with_page(query.limit.unwrap_or(1000), query.offset.unwrap_or(0));
+            ([(header::CONTENT_DISPOSITION, "attachment; filename=admin_audit_logs.json")], body).into_response()
+        }
+        Err(e) => ApiError::internal_logged("Failed to load logs", e).into_response()
     }
 }
 
@@ -330,6 +330,6 @@ pub async fn handle_admin_audit_logs_bin(
                 builder.finished_data().to_vec()
             ).into_response()
         },
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Err(e) => ApiError::internal_logged("Failed to load logs", e).into_response()
     }
 }

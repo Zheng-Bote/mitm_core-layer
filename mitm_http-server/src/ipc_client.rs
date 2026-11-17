@@ -43,9 +43,6 @@ pub async fn auth_middleware(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    use axum::http::StatusCode;
-    use axum::Json;
-    use serde::Serialize;
     
     let path = req.uri().path();
     // Allow public API endpoints without auth
@@ -63,28 +60,8 @@ pub async fn auth_middleware(
         return next.run(req).await;
     }
 
-    #[derive(Serialize)]
-    struct JsonApiError {
-        status: String,
-        title: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        detail: Option<String>,
-    }
-
-    #[derive(Serialize)]
-    struct ErrorResponse {
-        errors: Vec<JsonApiError>,
-    }
-    
     let make_error = |detail: &str| {
-        let err_resp = ErrorResponse {
-            errors: vec![JsonApiError {
-                status: "401".to_string(),
-                title: "Unauthorized".to_string(),
-                detail: Some(detail.to_string()),
-            }],
-        };
-        (StatusCode::UNAUTHORIZED, Json(err_resp)).into_response()
+        crate::handlers::response::ApiError::unauthorized(detail).into_response()
     };
     
     let auth_header = match req.headers().get(axum::http::header::AUTHORIZATION) {
