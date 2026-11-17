@@ -1,25 +1,12 @@
-use axum::{Router, routing::{get, post, delete}, extract::{State, Path, Query}};
+use axum::{Router, routing::{get, post, put}};
 use crate::handlers::AppState;
-use axum::response::IntoResponse;
+use crate::handlers::jobs;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(crate::handlers::jobs::handle_get_jobs))
-        .route("/", post(crate::handlers::jobs::handle_update_jobs))
-        .route("/:name", delete(handle_delete_job_v1))
-        .route("/:name/stop", post(handle_stop_job_v1))
-        .route("/:name/execute", post(handle_execute_job_v1))
-        .route("/upload/source_file", post(crate::handlers::jobs::handle_upload_file))
-}
-
-async fn handle_delete_job_v1(State(state): State<AppState>, Path(name): Path<String>) -> impl IntoResponse {
-    crate::handlers::jobs::handle_delete_job(State(state), Query(crate::handlers::jobs::JobNameQuery { name })).await
-}
-
-async fn handle_stop_job_v1(State(state): State<AppState>, Path(name): Path<String>) -> impl IntoResponse {
-    crate::handlers::jobs::handle_stop_job(State(state), Query(crate::handlers::jobs::JobNameQuery { name })).await
-}
-
-async fn handle_execute_job_v1(State(state): State<AppState>, Path(name): Path<String>) -> impl IntoResponse {
-    crate::handlers::jobs::handle_execute_job(State(state), Query(crate::handlers::jobs::JobNameQuery { name })).await
+        .route("/", get(jobs::handle_get_jobs).post(jobs::handle_create_job))
+        .route("/:name", put(jobs::handle_update_job).delete(jobs::handle_delete_job))
+        .route("/:name/stop", post(jobs::handle_stop_job))
+        .route("/:name/execute", post(jobs::handle_execute_job))
+        .route("/upload/source_file", post(jobs::handle_upload_file))
 }

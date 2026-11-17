@@ -1,3 +1,4 @@
+use crate::handlers::response::{ApiError, ApiResponse};
 use axum::{Router, routing::get};
 use axum::response::IntoResponse;
 use crate::handlers::AppState;
@@ -43,17 +44,8 @@ pub async fn handle_action(
         .execute(&state.repo.get().unwrap().pool)
         .await
     {
-        Ok(_) => axum::http::StatusCode::OK.into_response(),
-        Err(e) => {
-            let err = crate::handlers::ErrorResponse {
-                errors: vec![crate::handlers::JsonApiError {
-                    status: "500".into(),
-                    title: "Database Error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(err)).into_response()
-        }
+        Ok(_) => ApiResponse::ok(serde_json::Value::Null).with_detail("Action recorded").into_response(),
+        Err(e) => ApiError::internal_logged("Failed to record action", e).into_response(),
     }
 }
 
@@ -93,18 +85,13 @@ pub async fn handle_dashboard_stats(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    use axum::Json;
-    use axum::http::StatusCode;
 
     let db_info = match sqlx::query_as::<_, DbInfoRow>("SELECT current_database(), version(), pg_size_pretty(pg_database_size(current_database()))")
         .fetch_one(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(info) => info,
-        Err(e) => {
-            log::error!("Failed to fetch db info: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response();
-        }
+        Err(e) => return ApiError::internal_logged("Failed to fetch db info", e).into_response(),
     };
 
     let version = if db_info.version.starts_with("PostgreSQL ") {
@@ -168,5 +155,5 @@ pub async fn handle_dashboard_stats(
         },
     };
 
-    (StatusCode::OK, Json(stats)).into_response()
+    ApiResponse::ok(stats).into_response()
 }

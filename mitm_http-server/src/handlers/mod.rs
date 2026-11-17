@@ -33,19 +33,6 @@ pub struct AppState {
     pub oidc: Option<Arc<api_v1::oidc::Oidc>>,
 }
 
-#[derive(serde::Serialize)]
-pub struct JsonApiError {
-    pub status: String,
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-pub struct ErrorResponse {
-    pub errors: Vec<JsonApiError>,
-}
-
 pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppState>) -> axum::response::Response {
     let raw_db_version: String = sqlx::query_scalar("SELECT version()")
         .fetch_one(&state.repo.get().unwrap().pool).await.unwrap_or_else(|_| "Unknown".into());
@@ -87,7 +74,7 @@ pub async fn handle_info(axum::extract::State(state): axum::extract::State<AppSt
             { "name": "mitm_scheduler-server", "version": sched_version }
         ]
     });
-    axum::response::IntoResponse::into_response(axum::Json(info))
+    axum::response::IntoResponse::into_response(response::ApiResponse::ok(info))
 }
 
 async fn handle_health(State(state): State<AppState>) -> axum::response::Response {
@@ -105,7 +92,7 @@ pub async fn handle_time() -> axum::response::Response {
         "timestamp": now.timestamp(),
         "timezone": now.offset().to_string(),
     });
-    axum::response::IntoResponse::into_response(axum::Json(res))
+    axum::response::IntoResponse::into_response(response::ApiResponse::ok(res))
 }
 
 pub fn configure_routes(mitm_dir: String, state: AppState) -> Router<AppState> {

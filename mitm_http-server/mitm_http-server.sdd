@@ -24,7 +24,7 @@ Must:
   The server must deliver an `index.html` template when the root `/` endpoint is accessed.
 
 Tasks:
-  [ ] #33 Implement `@ApiResponse` / `@ApiError` envelope (`id`, `status`, `code`, `title`, `detail`, `meta`, `data`), `X-Request-ID` middleware, and RMM Level 2 endpoint alignment across `/api/v1/*` (#93).
+  [x] #33 Implement `@ApiResponse` / `@ApiError` envelope (`id`, `status`, `code`, `title`, `detail`, `meta`, `data`), `X-Request-ID` middleware, and RMM Level 2 endpoint alignment across `/api/v1/*` (#93).
   [x] #1 Implement Request-ID (UUID) middleware to generate and inject `X-Request-ID` header and `meta.request_id` into all JSON responses.
   [x] #2 Pass the generated Request-ID via UDS IPC payloads to IAM and Scheduler servers for distributed tracing.
   [x] #3 Eliminate remaining mock data (e.g. mock backup version, mock key rotation count) in admin.rs.

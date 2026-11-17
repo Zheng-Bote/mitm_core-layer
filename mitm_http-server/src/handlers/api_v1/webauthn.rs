@@ -15,7 +15,7 @@ use uuid::Uuid;
 use chrono::{Utc, Duration};
 use base64::{Engine as _, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
 use webauthn_rs::prelude::*;
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 use super::auth_guard;
 
 #[derive(Serialize)]
@@ -83,8 +83,7 @@ pub struct FinishLoginResp {
 
 /// Answer for a username that does not match the canonical format.
 fn invalid_username_response() -> Response {
-    let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Username must match ^[A-Z0-9._-]{1,64}$ (case-insensitive).".into()) }] };
-    (StatusCode::BAD_REQUEST, Json(err)).into_response()
+    ApiError::validation_failed("Username must match ^[A-Z0-9._-]{1,64}$ (case-insensitive).").into_response()
 }
 
 // GET /api/v1/auth/bootstrap/status
@@ -92,8 +91,7 @@ pub async fn get_bootstrap_status(State(state): State<AppState>) -> Response {
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "503".into(), title: "Service Unavailable".into(), detail: Some("Database not ready".into()) }] };
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(err)).into_response();
+            return ApiError::service_unavailable("Database not ready").into_response();
         }
     };
 
@@ -104,14 +102,13 @@ pub async fn get_bootstrap_status(State(state): State<AppState>) -> Response {
         Ok(c) => c,
         Err(e) => {
             log::error!("DB error checking bootstrap status: {}", e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some("DB query failed".into()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal("DB query failed").into_response();
         }
     };
 
-    (StatusCode::OK, Json(BootstrapStatusResponse {
+    ApiResponse::ok(BootstrapStatusResponse {
         bootstrap_required: user_count == 0,
-    })).into_response()
+    }).into_response()
 }
 
 // POST /api/v1/auth/webauthn/register/start
@@ -126,8 +123,7 @@ pub async fn start_registration(
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "503".into(), title: "Service Unavailable".into(), detail: Some("Database not ready".into()) }] };
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(err)).into_response();
+            return ApiError::service_unavailable("Database not ready").into_response();
         }
     };
 
@@ -142,12 +138,10 @@ pub async fn start_registration(
         // Validate bootstrap token
         if let Some(token) = &payload.bootstrap_token {
             if !auth_guard::bootstrap_token_matches(token) {
-                let err = ErrorResponse { errors: vec![JsonApiError { status: "403".into(), title: "Forbidden".into(), detail: Some("Invalid Bootstrap Token.".into()) }] };
-                return (StatusCode::FORBIDDEN, Json(err)).into_response();
+                return ApiError::forbidden("Invalid Bootstrap Token.").into_response();
             }
         } else {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Bootstrap Token is required when system is uninitialized.".into()) }] };
-            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+            return ApiError::bad_request("Bootstrap Token is required when system is uninitialized.").into_response();
         }
     }
 
@@ -185,8 +179,7 @@ pub async fn start_registration(
         Ok(res) => res,
         Err(e) => {
             log::error!("WebAuthn start_passkey_registration error: {:?}", e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "WebAuthn Error".into(), detail: Some(format!("{:?}", e)) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal("WebAuthn Error").into_response();
         }
     };
 
@@ -210,16 +203,15 @@ pub async fn start_registration(
     .execute(&repo.pool)
     .await {
         log::error!("Failed to persist webauthn registration state to database: {}", e);
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(format!("Failed to persist ceremony state: {}", e)) }] };
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        return ApiError::internal("Failed to persist ceremony state").into_response();
     }
 
-    (StatusCode::OK, Json(StartRegistrationResp {
+    ApiResponse::ok(StartRegistrationResp {
         ceremony_id,
         public_key_options: ccr,
         is_bootstrap,
         rp_origin: state.webauthn_origin.clone(),
-    })).into_response()
+    }).into_response()
 }
 
 /// Creates a user row. The initial bootstrap admin is active immediately; other registrations
@@ -288,8 +280,7 @@ pub async fn finish_registration(
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "503".into(), title: "Service Unavailable".into(), detail: Some("Database not ready".into()) }] };
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(err)).into_response();
+            return ApiError::service_unavailable("Database not ready").into_response();
         }
     };
 
@@ -301,23 +292,20 @@ pub async fn finish_registration(
     .await {
         Ok(Some(r)) => r,
         _ => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Ceremony expired or not found.".into()) }] };
-            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+            return ApiError::bad_request("Ceremony expired or not found.").into_response();
         }
     };
 
     if row.1 < Utc::now() {
         let _ = sqlx::query("DELETE FROM webauthn_states WHERE id = $1").bind(payload.ceremony_id).execute(&repo.pool).await;
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Ceremony expired.".into()) }] };
-        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        return ApiError::bad_request("Ceremony expired.").into_response();
     }
 
     let state_data = row.0;
     let reg_state_val = match state_data.get("reg_state") {
         Some(v) => v,
         None => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some("Corrupt ceremony state".into()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal("Corrupt ceremony state").into_response();
         }
     };
 
@@ -325,8 +313,7 @@ pub async fn finish_registration(
         Ok(s) => s,
         Err(e) => {
             log::error!("Failed to deserialize PasskeyRegistration: {}", e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal("Internal Server Error").into_response();
         }
     };
 
@@ -335,8 +322,7 @@ pub async fn finish_registration(
         Err(e) => {
             log::error!("WebAuthn finish_passkey_registration error: {:?}", e);
             log_rp_config_error(&state, repo, "registration", &e).await;
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Registration Verification Failed".into(), detail: Some(format!("{:?}", e)) }] };
-            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+            return ApiError::new(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Registration Verification Failed", format!("{:?}", e)).into_response();
         }
     };
 
@@ -362,13 +348,11 @@ pub async fn finish_registration(
             Ok(Some(uid)) => (uid, true),
             Ok(None) => {
                 let _ = sqlx::query("DELETE FROM webauthn_states WHERE id = $1").bind(payload.ceremony_id).execute(&repo.pool).await;
-                let err = ErrorResponse { errors: vec![JsonApiError { status: "409".into(), title: "Conflict".into(), detail: Some("System is already initialized.".into()) }] };
-                return (StatusCode::CONFLICT, Json(err)).into_response();
+                return ApiError::conflict("System is already initialized.").into_response();
             }
             Err(e) => {
                 log::error!("Failed to insert user {}: {}", username, e);
-                let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(e.to_string()) }] };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+                return ApiError::internal("Database Error").into_response();
             }
         },
     };
@@ -446,24 +430,24 @@ pub async fn finish_registration(
         .execute(&repo.pool)
         .await;
 
-        (StatusCode::CREATED, Json(FinishRegistrationResp {
+        ApiResponse::created(FinishRegistrationResp {
             status: "active".into(),
             message: "Bootstrap admin registered and active.".into(),
             session_token: Some(token_uuid.to_string()),
-        })).into_response()
+        }).into_response()
     } else if !is_new_user {
         // Additional key registered for an existing user
-        (StatusCode::CREATED, Json(FinishRegistrationResp {
+        ApiResponse::created(FinishRegistrationResp {
             status: "active".into(),
             message: "Additional hardware token registered successfully.".into(),
             session_token: None,
-        })).into_response()
+        }).into_response()
     } else {
-        (StatusCode::CREATED, Json(FinishRegistrationResp {
+        ApiResponse::created(FinishRegistrationResp {
             status: "pending_approval".into(),
             message: "User registered successfully. Your account is inactive pending administrator approval.".into(),
             session_token: None,
-        })).into_response()
+        }).into_response()
     }
 }
 
@@ -477,8 +461,7 @@ pub async fn start_login(
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "503".into(), title: "Service Unavailable".into(), detail: Some("Database not ready".into()) }] };
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(err)).into_response();
+            return ApiError::service_unavailable("Database not ready").into_response();
         }
     };
     let client_ip = auth_guard::client_ip(&headers, peer.as_ref(), state.trust_proxy_headers);
@@ -497,8 +480,7 @@ pub async fn start_login(
             Ok(u) => u,
             Err(e) => {
                 log::error!("DB error looking up user {}: {}", payload.username, e);
-                let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some("DB query error".into()) }] };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+                return ApiError::internal("DB query error").into_response();
             }
         };
 
@@ -506,15 +488,13 @@ pub async fn start_login(
         Some((id, active)) => (id, active),
         None => {
             login_failed(repo, &payload.username, "unknown_user", client_ip).await;
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "404".into(), title: "Not Found".into(), detail: Some("User not found.".into()) }] };
-            return (StatusCode::NOT_FOUND, Json(err)).into_response();
+            return ApiError::not_found("User not found.").into_response();
         }
     };
 
     if !is_active {
         login_failed(repo, &payload.username, "account_inactive", client_ip).await;
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "403".into(), title: "Forbidden".into(), detail: Some("Account is inactive pending administrator approval.".into()) }] };
-        return (StatusCode::FORBIDDEN, Json(err)).into_response();
+        return ApiError::user_inactive("Account is inactive pending administrator approval.").into_response();
     }
 
     // Fetch credentials for user
@@ -525,15 +505,13 @@ pub async fn start_login(
             Ok(rows) => rows,
             Err(e) => {
                 log::error!("DB error fetching credentials for user {}: {}", user_id, e);
-                let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some("DB error".into()) }] };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+                return ApiError::internal("DB error").into_response();
             }
         };
 
     if cred_rows.is_empty() {
         login_failed(repo, &payload.username, "no_passkeys", client_ip).await;
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("No WebAuthn passkeys registered for this user.".into()) }] };
-        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        return ApiError::bad_request("No WebAuthn passkeys registered for this user.").into_response();
     }
 
     let mut passkeys: Vec<Passkey> = Vec::new();
@@ -547,8 +525,7 @@ pub async fn start_login(
         Ok(res) => res,
         Err(e) => {
             log::error!("WebAuthn start_passkey_authentication error: {:?}", e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "WebAuthn Error".into(), detail: Some(format!("{:?}", e)) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal("WebAuthn Error").into_response();
         }
     };
 
@@ -569,15 +546,14 @@ pub async fn start_login(
     .execute(&repo.pool)
     .await {
         log::error!("Failed to persist webauthn login state to database: {}", e);
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(format!("Failed to persist ceremony state: {}", e)) }] };
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        return ApiError::internal("Failed to persist ceremony state").into_response();
     }
 
-    (StatusCode::OK, Json(StartLoginResp {
+    ApiResponse::ok(StartLoginResp {
         ceremony_id,
         public_key_options: rcr,
         rp_origin: state.webauthn_origin.clone(),
-    })).into_response()
+    }).into_response()
 }
 
 // POST /api/v1/auth/webauthn/login/finish
@@ -590,8 +566,7 @@ pub async fn finish_login(
     let repo = match state.repo.get() {
         Some(r) => r,
         None => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "503".into(), title: "Service Unavailable".into(), detail: Some("Database not ready".into()) }] };
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(err)).into_response();
+            return ApiError::service_unavailable("Database not ready").into_response();
         }
     };
 
@@ -605,16 +580,14 @@ pub async fn finish_login(
         Ok(Some(r)) => r,
         _ => {
             login_failed(repo, "-", "ceremony_not_found", client_ip).await;
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Ceremony expired or not found.".into()) }] };
-            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+            return ApiError::bad_request("Ceremony expired or not found.").into_response();
         }
     };
 
     if row.1 < Utc::now() {
         login_failed(repo, row.0["username"].as_str().unwrap_or("-"), "ceremony_expired", client_ip).await;
         let _ = sqlx::query("DELETE FROM webauthn_states WHERE id = $1").bind(payload.ceremony_id).execute(&repo.pool).await;
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Ceremony expired.".into()) }] };
-        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        return ApiError::bad_request("Ceremony expired.").into_response();
     }
 
     let state_data = row.0;
@@ -622,8 +595,7 @@ pub async fn finish_login(
         Ok(a) => a,
         Err(e) => {
             log::error!("Failed to deserialize PasskeyAuthentication: {}", e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some("State parse error".into()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal("State parse error").into_response();
         }
     };
 
@@ -633,8 +605,7 @@ pub async fn finish_login(
             log::error!("WebAuthn finish_passkey_authentication failed: {:?}", e);
             log_rp_config_error(&state, repo, "login", &e).await;
             login_failed(repo, state_data["username"].as_str().unwrap_or("-"), "verification_failed", client_ip).await;
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Passkey verification failed.".into()) }] };
-            return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
+            return ApiError::unauthorized("Passkey verification failed.").into_response();
         }
     };
 
@@ -651,8 +622,7 @@ pub async fn finish_login(
 
     if !is_active {
         login_failed(repo, username, "account_inactive", client_ip).await;
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "403".into(), title: "Forbidden".into(), detail: Some("Account is inactive.".into()) }] };
-        return (StatusCode::FORBIDDEN, Json(err)).into_response();
+        return ApiError::user_inactive("Account is inactive.").into_response();
     }
 
     // Update credential counter and last_used_at
@@ -686,9 +656,9 @@ pub async fn finish_login(
 
     repo.audit(username, crate::audit::action::USER_LOGIN_WEBAUTHN, serde_json::json!({ "status": "success" })).await;
 
-    (StatusCode::OK, Json(FinishLoginResp {
+    ApiResponse::ok(FinishLoginResp {
         session_token: token_uuid.to_string(),
-    })).into_response()
+    }).into_response()
 }
 
 pub fn routes() -> Router<AppState> {

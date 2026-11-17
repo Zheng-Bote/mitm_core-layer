@@ -1,6 +1,6 @@
 use axum::{
-    extract::{State, Json},
-    http::{StatusCode, HeaderMap, header::AUTHORIZATION},
+    extract::State,
+    http::{HeaderMap, header::AUTHORIZATION},
     response::{IntoResponse, Response},
     routing::get,
     Router,
@@ -8,7 +8,7 @@ use axum::{
 use serde::Serialize;
 use uuid::Uuid;
 use chrono::{Utc, Duration};
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 
 #[derive(Serialize)]
 pub struct RolesResponse {
@@ -30,14 +30,12 @@ pub async fn get_roles(
     let auth_header = match headers.get(AUTHORIZATION).and_then(|h| h.to_str().ok()) {
         Some(h) => h,
         None => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Missing authorization header".into()) }] };
-            return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
+            return ApiError::unauthorized("Missing authorization header").into_response();
         }
     };
         
     if !auth_header.starts_with("Bearer ") {
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Invalid authorization format".into()) }] };
-        return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
+        return ApiError::unauthorized("Invalid authorization format").into_response();
     }
     
     let token_str = &auth_header[7..];
@@ -45,8 +43,7 @@ pub async fn get_roles(
     let token_uuid = match Uuid::parse_str(token_str) {
         Ok(u) => u,
         Err(_) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Invalid token format".into()) }] };
-            return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
+            return ApiError::unauthorized("Invalid token format").into_response();
         }
     };
 
@@ -64,20 +61,17 @@ pub async fn get_roles(
         Ok(s) => s,
         Err(e) => {
             log::error!("DB error fetching session: {}", e);
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some("Database error".into()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal("Database error").into_response();
         }
     };
 
     if let Some(session) = session_opt {
         if session.1 < now {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Session expired (absolute TTL)".into()) }] };
-            return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
+            return ApiError::unauthorized("Session expired (absolute TTL)").into_response();
         }
         
         if session.2.unwrap_or(now) + Duration::hours(2) < now {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Session expired (idle timeout)".into()) }] };
-            return (StatusCode::UNAUTHORIZED, Json(err)).into_response();
+            return ApiError::unauthorized("Session expired (idle timeout)").into_response();
         }
 
         let _ = sqlx::query(
@@ -135,7 +129,7 @@ pub async fn get_roles(
             }
         }
 
-        Json(RolesResponse { 
+        ApiResponse::ok(RolesResponse { 
             roles, 
             os_user: session.0,
             first_name,
@@ -147,8 +141,7 @@ pub async fn get_roles(
         }).into_response()
 
     } else {
-        let err = ErrorResponse { errors: vec![JsonApiError { status: "401".into(), title: "Unauthorized".into(), detail: Some("Invalid session token".into()) }] };
-        (StatusCode::UNAUTHORIZED, Json(err)).into_response()
+        ApiError::unauthorized("Invalid session token").into_response()
     }
 }
 

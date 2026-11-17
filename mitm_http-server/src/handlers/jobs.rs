@@ -3,11 +3,11 @@
  */
 
 use axum::{
-    extract::{State, Query},
-    http::StatusCode,
-    response::IntoResponse,
+    extract::{State, Path},
+    response::{IntoResponse, Response},
     Json,
 };
+use serde_json::Value;
 use serde::{Deserialize, Serialize};
 
 use tokio::net::UnixStream;
@@ -15,7 +15,7 @@ use tokio::io::AsyncWriteExt;
 use mitm_common::ipc::SchedulerRequest;
 use std::str::FromStr;
 
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 
 
 
@@ -54,28 +54,26 @@ struct JobRow {
     is_running: Option<bool>,
 }
 
-pub async fn handle_get_jobs(State(state): State<AppState>) -> impl IntoResponse {
+/// Parses a 5- or 6-field cron expression the same way the scheduler does.
+fn parse_cron(expr: &str) -> Option<cron::Schedule> {
+    let normalized = if expr.split_whitespace().count() == 5 { format!("0 {} *", expr) } else { expr.to_string() };
+    cron::Schedule::from_str(&normalized).ok()
+}
+
+pub async fn handle_get_jobs(State(state): State<AppState>) -> Response {
     let query = "SELECT sp.id, sp.name, sp.command, sp.args, sp.cron_expr, sp.enabled, sp.restart_on_exit, pr.pid as active_pid, CASE WHEN pr.id IS NOT NULL THEN true ELSE false END as is_running FROM scheduled_programs sp LEFT JOIN program_runs pr ON sp.id = pr.program_id AND pr.finished_at IS NULL ORDER BY sp.name ASC";
     match sqlx::query_as::<_, JobRow>(query)
         .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(rows) => {
-            // let now = chrono::Utc::now();
             let mut jobs = Vec::new();
             for r in rows {
                 let mut next_run = String::new();
                 if r.enabled {
-                    if let Some(ref cron) = r.cron_expr {
-                        let mut cron_str = cron.clone();
-                        let parts: Vec<&str> = cron_str.split_whitespace().collect();
-                        if parts.len() == 5 {
-                            cron_str = format!("0 {} *", cron_str);
-                        }
-                        if let Ok(schedule) = cron::Schedule::from_str(&cron_str) {
-                            if let Some(next) = schedule.upcoming(chrono::Utc).next() {
-                                next_run = next.to_rfc3339();
-                            }
+                    if let Some(schedule) = r.cron_expr.as_deref().and_then(parse_cron) {
+                        if let Some(next) = schedule.upcoming(chrono::Utc).next() {
+                            next_run = next.to_rfc3339();
                         }
                     }
                 }
@@ -95,18 +93,10 @@ pub async fn handle_get_jobs(State(state): State<AppState>) -> impl IntoResponse
                     active_pid: r.active_pid,
                 });
             }
-            (StatusCode::OK, Json(jobs)).into_response()
+            let count = jobs.len();
+            ApiResponse::ok(jobs).with_count(count).into_response()
         },
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database Error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
+        Err(e) => ApiError::internal_logged("Failed to load jobs", e).into_response(),
     }
 }
 
@@ -119,130 +109,154 @@ async fn send_scheduler_ipc(req: SchedulerRequest, socket_dir: &str) -> Result<(
     Ok(())
 }
 
-pub async fn handle_update_jobs(
-    State(state): State<AppState>,
-    Json(jobs): Json<Vec<ScheduledProgram>>,
-) -> impl IntoResponse {
-    let mut tx = match state.repo.get().unwrap().pool.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response()
-    };
-
-    for job in jobs {
-        let sql = "INSERT INTO scheduled_programs (name, command, args, cron_expr, enabled, restart_on_exit, updated_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-                   ON CONFLICT (name) DO UPDATE SET
-                   command = EXCLUDED.command, args = EXCLUDED.args,
-                   cron_expr = EXCLUDED.cron_expr, enabled = EXCLUDED.enabled, restart_on_exit = EXCLUDED.restart_on_exit,
-                   updated_at = CURRENT_TIMESTAMP";
-        if let Err(e) = sqlx::query(sql)
-            .bind(&job.name)
-            .bind(&job.command)
-            .bind(&job.args)
-            .bind(&job.cron_expr)
-            .bind(job.enabled)
-            .bind(job.restart_on_exit)
-            .execute(&mut *tx)
-            .await
-        {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response();
-        }
-    }
-
-    if let Err(e) = tx.commit().await {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response();
-    }
-
-    match send_scheduler_ipc(SchedulerRequest::UpdateJobs, &state.config.socket_dir).await {
-        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "message": "Jobs updated and scheduler reloaded" }))).into_response(),
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "IPC Error".into(),
-                    detail: Some(e),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
-    }
+/// Body of `PUT /api/v1/jobs/:name`; the job name comes from the path.
+#[derive(Deserialize)]
+pub struct JobUpdate {
+    pub command: String,
+    pub args: Option<serde_json::Value>,
+    pub cron_expr: Option<String>,
+    pub enabled: bool,
+    pub restart_on_exit: bool,
 }
 
-#[derive(Deserialize)]
-pub struct JobNameQuery {
-    pub name: String,
+/// `422` when a job definition is semantically invalid.
+fn validate_job(name: &str, command: &str, cron_expr: Option<&str>) -> Result<(), ApiError> {
+    if name.trim().is_empty() {
+        return Err(ApiError::validation_failed("Job name must not be empty"));
+    }
+    if command.trim().is_empty() {
+        return Err(ApiError::validation_failed("Job command must not be empty"));
+    }
+    if let Some(expr) = cron_expr.filter(|e| !e.trim().is_empty()) {
+        if parse_cron(expr).is_none() {
+            return Err(ApiError::validation_failed(format!("Invalid cron expression '{}'", expr)));
+        }
+    }
+    Ok(())
+}
+
+/// `POST /api/v1/jobs`: creates one job (`201` + `Location`, `409` if the name exists).
+pub async fn handle_create_job(
+    State(state): State<AppState>,
+    Json(job): Json<ScheduledProgram>,
+) -> Response {
+    if let Err(e) = validate_job(&job.name, &job.command, job.cron_expr.as_deref()) {
+        return e.into_response();
+    }
+    let sql = "INSERT INTO scheduled_programs (name, command, args, cron_expr, enabled, restart_on_exit, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+               ON CONFLICT (name) DO NOTHING
+               RETURNING id";
+    let id: Option<i32> = match sqlx::query_scalar(sql)
+        .bind(&job.name)
+        .bind(&job.command)
+        .bind(&job.args)
+        .bind(&job.cron_expr)
+        .bind(job.enabled)
+        .bind(job.restart_on_exit)
+        .fetch_optional(&state.repo.get().unwrap().pool)
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => return ApiError::internal_logged("Failed to create job", e).into_response(),
+    };
+    let Some(id) = id else {
+        return ApiError::conflict(format!("Job '{}' already exists", job.name)).into_response();
+    };
+
+    if let Err(e) = send_scheduler_ipc(SchedulerRequest::UpdateJobs, &state.config.socket_dir).await {
+        return ApiError::internal_logged("Job created, but the scheduler could not be reloaded", e).into_response();
+    }
+    let location = format!("/api/v1/jobs/{}", job.name);
+    ApiResponse::created_at(&location, ScheduledProgram { id, ..job })
+}
+
+/// `PUT /api/v1/jobs/:name`: replaces an existing job's definition (`404` if unknown).
+pub async fn handle_update_job(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(job): Json<JobUpdate>,
+) -> Response {
+    if let Err(e) = validate_job(&name, &job.command, job.cron_expr.as_deref()) {
+        return e.into_response();
+    }
+    let sql = "UPDATE scheduled_programs SET command = $2, args = $3, cron_expr = $4, enabled = $5,
+               restart_on_exit = $6, updated_at = CURRENT_TIMESTAMP
+               WHERE name = $1 RETURNING id";
+    let id: Option<i32> = match sqlx::query_scalar(sql)
+        .bind(&name)
+        .bind(&job.command)
+        .bind(&job.args)
+        .bind(&job.cron_expr)
+        .bind(job.enabled)
+        .bind(job.restart_on_exit)
+        .fetch_optional(&state.repo.get().unwrap().pool)
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => return ApiError::internal_logged("Failed to update job", e).into_response(),
+    };
+    let Some(id) = id else {
+        return ApiError::not_found(format!("Job '{}' not found", name)).into_response();
+    };
+
+    if let Err(e) = send_scheduler_ipc(SchedulerRequest::UpdateJobs, &state.config.socket_dir).await {
+        return ApiError::internal_logged("Job updated, but the scheduler could not be reloaded", e).into_response();
+    }
+    let program = ScheduledProgram {
+        id,
+        name,
+        command: job.command,
+        args: job.args,
+        cron_expr: job.cron_expr,
+        enabled: job.enabled,
+        restart_on_exit: job.restart_on_exit,
+    };
+    ApiResponse::ok(program).into_response()
 }
 
 pub async fn handle_delete_job(
     State(state): State<AppState>,
-    Query(query): Query<JobNameQuery>,
-) -> impl IntoResponse {
+    Path(name): Path<String>,
+) -> Response {
     match sqlx::query("DELETE FROM scheduled_programs WHERE name = $1")
-        .bind(query.name)
+        .bind(&name)
         .execute(&state.repo.get().unwrap().pool)
         .await
     {
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("Job '{}' not found", name)).into_response(),
         Ok(_) => {
             let _ = send_scheduler_ipc(SchedulerRequest::UpdateJobs, &state.config.socket_dir).await;
-            StatusCode::OK.into_response()
+            ApiResponse::deleted(format!("Job '{}' deleted", name)).into_response()
         },
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database Error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
+        Err(e) => ApiError::internal_logged("Failed to delete job", e).into_response(),
     }
 }
 
 pub async fn handle_stop_job(
     State(state): State<AppState>,
-    Query(query): Query<JobNameQuery>,
-) -> impl IntoResponse {
-    match send_scheduler_ipc(SchedulerRequest::StopJob { job_name: query.name.clone() }, &state.config.socket_dir).await {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "IPC Error".into(),
-                    detail: Some(e),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
+    Path(name): Path<String>,
+) -> Response {
+    match send_scheduler_ipc(SchedulerRequest::StopJob { job_name: name.clone() }, &state.config.socket_dir).await {
+        Ok(_) => ApiResponse::<Value>::accepted(format!("Stop of job '{}' requested", name), None).into_response(),
+        Err(e) => ApiError::internal_logged("Scheduler unreachable", e).into_response(),
     }
 }
 
 pub async fn handle_execute_job(
     State(state): State<AppState>,
-    Query(query): Query<JobNameQuery>,
-) -> impl IntoResponse {
-    match send_scheduler_ipc(SchedulerRequest::ExecuteJob { job_name: query.name.clone() }, &state.config.socket_dir).await {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "IPC Error".into(),
-                    detail: Some(e),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
+    Path(name): Path<String>,
+) -> Response {
+    match send_scheduler_ipc(SchedulerRequest::ExecuteJob { job_name: name.clone() }, &state.config.socket_dir).await {
+        Ok(_) => ApiResponse::<Value>::accepted(format!("Execution of job '{}' requested", name), None).into_response(),
+        Err(e) => ApiError::internal_logged("Scheduler unreachable", e).into_response(),
     }
 }
 
-
-
 pub async fn handle_upload_file(
-    axum::extract::State(state): axum::extract::State<crate::handlers::AppState>,
+    State(state): State<AppState>,
     mut multipart: axum::extract::Multipart,
-) -> impl axum::response::IntoResponse {
+) -> Response {
     let _ = std::fs::create_dir_all(&state.config.upload_dir);
     
     let mut file_data: Option<Vec<u8>> = None;
@@ -268,7 +282,7 @@ pub async fn handle_upload_file(
         let dest_path = std::path::Path::new(&state.config.upload_dir).join(format!("{}_{}", timestamp, file_name));
         
         if let Err(e) = std::fs::write(&dest_path, &data) {
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("Failed to save file: {}", e)) }] })).into_response();
+            return ApiError::internal_logged("Failed to save file", e).into_response();
         }
         
         // Trigger collector
@@ -277,7 +291,7 @@ pub async fn handle_upload_file(
             "topic": topic
         }).to_string();
         
-        use mitm_common::ipc::{SchedulerRequest, RunImmediateJob};
+        use mitm_common::ipc::RunImmediateJob;
         let req = SchedulerRequest::RunImmediateJob(RunImmediateJob {
             command: "mitm-collector-csv-xls".to_string(),
             args: args_json,
@@ -285,8 +299,8 @@ pub async fn handle_upload_file(
         
         let _ = send_scheduler_ipc(req, &state.config.socket_dir).await;
 
-        return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({ "message": "File uploaded" }))).into_response();
+        return ApiResponse::<Value>::accepted("File uploaded; import scheduled", None).into_response();
     }
 
-    (axum::http::StatusCode::BAD_REQUEST, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("No file field found".into()) }] })).into_response()
+    ApiError::bad_request("No file field found").into_response()
 }

@@ -3,13 +3,13 @@
  */
 
 use axum::{
-    extract::{State, Query},
+    extract::{State, Query, Path},
     http::{StatusCode, header},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
-use crate::handlers::AppState;
+use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 use crate::schematas;
 use flatbuffers::FlatBufferBuilder;
 
@@ -38,39 +38,45 @@ pub struct TransformationError { pub id: uuid::Uuid, pub raw_ingestion_id: Optio
 #[derive(Serialize, sqlx::FromRow)]
 pub struct TopicDependency { pub topic: String, pub required_sources: Vec<String>, }
 
+/// `200` envelope for a paginated collection (`meta.count`, `meta.limit`, `meta.offset`).
+fn paginated<T: Serialize>(items: Vec<T>, query: &PaginationQuery) -> Response {
+    let count = items.len();
+    ApiResponse::ok(items).with_count(count).with_page(query.limit.unwrap_or(100), query.offset.unwrap_or(0)).into_response()
+}
+
 pub async fn handle_sources(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, type, topic, version FROM mapping_source ORDER BY name LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingSource>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(res) => paginated(res, &query),
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 pub async fn handle_targets(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, topic, field_name, data_type, is_required, encrypted, version FROM mapping_target_field ORDER BY topic LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingTargetField>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(res) => paginated(res, &query),
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 pub async fn handle_rules(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, source_id, target_field_id, source_field, priority, transformation_chain, validation_chain, version FROM mapping_rule ORDER BY priority LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingRule>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(res) => paginated(res, &query),
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 pub async fn handle_transformations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, description, parameters, version FROM mapping_transformation ORDER BY name LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingTransformation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(res) => paginated(res, &query),
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 pub async fn handle_validations(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
     let sql = "SELECT id, name, description, parameters, version FROM mapping_validation ORDER BY name LIMIT $1 OFFSET $2";
     match sqlx::query_as::<_, MappingValidation>(sql).bind(query.limit.unwrap_or(100)).bind(query.offset.unwrap_or(0)).fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(res) => paginated(res, &query),
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -96,11 +102,8 @@ pub async fn handle_errors(State(state): State<AppState>, Query(query): Query<Pa
     builder.push_bind(query.offset.unwrap_or(0));
 
     match builder.build_query_as::<TransformationError>().fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(e) => {
-            log::error!("Database error in handle_errors: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Ok(res) => paginated(res, &query),
+        Err(e) => ApiError::internal_logged("Failed to load transformation errors", e).into_response(),
     }
 }
 pub async fn handle_errors_bin(State(state): State<AppState>, Query(query): Query<PaginationQuery>) -> impl IntoResponse {
@@ -162,43 +165,49 @@ pub async fn handle_errors_bin(State(state): State<AppState>, Query(query): Quer
                 fb.finished_data().to_vec()
             ).into_response()
         },
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
-pub async fn handle_topic_dependencies(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_topic_dependencies(State(state): State<AppState>) -> Response {
     let sql = "SELECT topic, required_sources FROM topic_dependencies ORDER BY topic";
     match sqlx::query_as::<_, TopicDependency>(sql).fetch_all(&state.repo.get().unwrap().pool).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(res) => {
+            let count = res.len();
+            ApiResponse::ok(res).with_count(count).into_response()
+        }
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
-pub async fn handle_delete_topic_dependencies(
+/// `DELETE /api/v1/config/transformations/topic-dependencies/:topic`.
+pub async fn handle_delete_topic_dependency(
     State(state): State<AppState>,
-    Query(query): Query<std::collections::HashMap<String, String>>,
-) -> impl IntoResponse {
-    let topic = match query.get("topic") {
-        Some(t) => t,
-        None => return StatusCode::BAD_REQUEST.into_response(),
-    };
+    Path(topic): Path<String>,
+) -> Response {
     let sql = "DELETE FROM topic_dependencies WHERE topic = $1";
-    match sqlx::query(sql).bind(topic).execute(&state.repo.get().unwrap().pool).await {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    match sqlx::query(sql).bind(&topic).execute(&state.repo.get().unwrap().pool).await {
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("Topic dependency '{}' not found", topic)).into_response(),
+        Ok(_) => ApiResponse::deleted(format!("Topic dependency '{}' deleted", topic)).into_response(),
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
+/// Body of `PUT /api/v1/config/transformations/topic-dependencies/:topic`.
 #[derive(Deserialize)]
 pub struct TopicDependencyPayload {
-    pub topic: String,
     pub required_sources: Vec<String>,
 }
 
-pub async fn handle_post_topic_dependencies(
+/// `PUT /api/v1/config/transformations/topic-dependencies/:topic`: creates or replaces the dependency.
+pub async fn handle_put_topic_dependency(
     State(state): State<AppState>,
     axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    Path(topic): Path<String>,
     Json(payload): Json<TopicDependencyPayload>,
-) -> impl IntoResponse {
+) -> Response {
+    if topic.trim().is_empty() {
+        return ApiError::validation_failed("Topic must not be empty").into_response();
+    }
     let sql = r#"
         INSERT INTO topic_dependencies (topic, required_sources)
         VALUES ($1, $2)
@@ -206,14 +215,14 @@ pub async fn handle_post_topic_dependencies(
             required_sources = EXCLUDED.required_sources
     "#;
     match sqlx::query(sql)
-        .bind(&payload.topic)
+        .bind(&topic)
         .bind(&payload.required_sources)
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
-            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TOPIC_DEPENDENCY, serde_json::json!({"topic": payload.topic})).await;
-            StatusCode::OK.into_response()
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TOPIC_DEPENDENCY, serde_json::json!({"topic": topic})).await;
+            ApiResponse::ok(TopicDependency { topic, required_sources: payload.required_sources }).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -249,13 +258,13 @@ pub async fn handle_auto_map(
     Json(payload): Json<AutoMapRequest>,
 ) -> impl IntoResponse {
     if payload.source_fields.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Missing source_fields".into()) }] })).into_response();
+        return ApiError::validation_failed("Missing source_fields").into_response();
     }
 
     let targets = match sqlx::query_as::<_, MappingTargetField>("SELECT id, topic, field_name, data_type, is_required, encrypted, version FROM mapping_target_field")
         .fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(t) => t,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => return ApiError::internal_logged("Database error", e).into_response()
     };
 
     let mut created = 0;
@@ -287,7 +296,7 @@ pub async fn handle_auto_map(
         }
     }
 
-    (StatusCode::OK, Json(serde_json::json!({ "created": created }))).into_response()
+    ApiResponse::ok(serde_json::json!({ "created": created })).into_response()
 }
 
 
@@ -342,9 +351,9 @@ pub async fn handle_post_transformations(
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TRANSFORMATION, serde_json::json!({"id": id.to_string(), "name": payload.name})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::ok(serde_json::json!({ "id": id })).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -354,11 +363,12 @@ pub async fn handle_delete_transformations(
     axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_transformation WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("{} not found", id)).into_response(),
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_TRANSFORMATION, serde_json::json!({"id": id.to_string()})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::deleted(format!("{} deleted", id)).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -386,9 +396,9 @@ pub async fn handle_post_validations(
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_VALIDATION, serde_json::json!({"id": id.to_string(), "name": payload.name})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::ok(serde_json::json!({ "id": id })).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -398,11 +408,12 @@ pub async fn handle_delete_validations(
     axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_validation WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("{} not found", id)).into_response(),
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_VALIDATION, serde_json::json!({"id": id.to_string()})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::deleted(format!("{} deleted", id)).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -437,9 +448,9 @@ pub async fn handle_post_rules(
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_RULE, serde_json::json!({"id": id.to_string(), "source_field": payload.source_field})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::ok(serde_json::json!({ "id": id })).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -449,11 +460,12 @@ pub async fn handle_delete_rules(
     axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_rule WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("{} not found", id)).into_response(),
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_RULE, serde_json::json!({"id": id.to_string()})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::deleted(format!("{} deleted", id)).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -489,9 +501,9 @@ pub async fn handle_post_sources(
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_SOURCE, serde_json::json!({"id": id.to_string(), "name": payload.name})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::ok(serde_json::json!({ "id": id })).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -501,11 +513,12 @@ pub async fn handle_delete_sources(
     axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_source WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("{} not found", id)).into_response(),
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_SOURCE, serde_json::json!({"id": id.to_string()})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::deleted(format!("{} deleted", id)).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -546,9 +559,9 @@ pub async fn handle_post_targets(
         .execute(&state.repo.get().unwrap().pool).await {
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TARGET, serde_json::json!({"id": id.to_string(), "field": payload.field_name})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::ok(serde_json::json!({ "id": id })).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -558,10 +571,11 @@ pub async fn handle_delete_targets(
     axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM mapping_target_field WHERE id = $1").bind(id).execute(&state.repo.get().unwrap().pool).await {
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("{} not found", id)).into_response(),
         Ok(_) => {
             state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_TARGET, serde_json::json!({"id": id.to_string()})).await;
-            StatusCode::OK.into_response()
+            ApiResponse::deleted(format!("{} deleted", id)).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }

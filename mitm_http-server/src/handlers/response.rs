@@ -34,13 +34,8 @@ const MAX_ENVELOPE_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 /// Per-request UUID stored in request extensions and returned in `X-Request-ID` and `ApiResponse.id`.
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // available to handlers via `Extension<RequestId>`
 pub struct RequestId(pub String);
-
-impl RequestId {
-    pub fn generate() -> Self {
-        Self(Uuid::new_v4().to_string())
-    }
-}
 
 /// Metadata block of every standardized API response.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -106,6 +101,15 @@ impl<T: Serialize> ApiResponse<T> {
         Self::new(StatusCode::CREATED, "CREATED", "Resource Created", None, Some(data))
     }
 
+    /// `201 Created` with a `Location` header pointing at the new resource.
+    pub fn created_at(location: &str, data: T) -> Response {
+        let mut res = Self::created(data).into_response();
+        if let Ok(v) = HeaderValue::from_str(location) {
+            res.headers_mut().insert(axum::http::header::LOCATION, v);
+        }
+        res
+    }
+
     pub fn accepted(detail: impl Into<String>, data: Option<T>) -> Self {
         Self::new(StatusCode::ACCEPTED, "ACCEPTED", "Accepted", Some(detail.into()), data)
     }
@@ -117,6 +121,12 @@ impl<T: Serialize> ApiResponse<T> {
 
     pub fn with_count(mut self, count: usize) -> Self {
         self.meta.count = Some(count);
+        self
+    }
+
+    pub fn with_page(mut self, limit: i64, offset: i64) -> Self {
+        self.meta.limit = Some(limit);
+        self.meta.offset = Some(offset);
         self
     }
 }
@@ -217,6 +227,12 @@ impl ApiError {
         )
     }
 
+    /// `500` whose `detail` is only `context`; the underlying error (SQL, IPC, I/O) goes to the log, never to the client.
+    pub fn internal_logged(context: &str, err: impl std::fmt::Display) -> Self {
+        log::error!("{}: {}", context, err);
+        Self::internal(context)
+    }
+
     pub fn service_unavailable(detail: impl Into<String>) -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -312,37 +328,7 @@ pub fn normalize_to_envelope(status: StatusCode, request_id: &str, body_bytes: &
             return parsed;
         }
 
-        // 2. Legacy `{"errors": [{"status", "title", "detail"}]}` payload.
-        if let Some(errors) = parsed.get("errors").and_then(|v| v.as_array()) {
-            if let Some(first) = errors.first() {
-                let title = first
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(default_title)
-                    .to_string();
-                let detail = first
-                    .get("detail")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let code = first
-                    .get("code")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(default_code)
-                    .to_string();
-                let env = ApiResponse::<Value> {
-                    id: request_id.to_string(),
-                    status: status.as_u16(),
-                    code,
-                    title,
-                    detail,
-                    meta: ApiMeta::default(),
-                    data: None,
-                };
-                return serde_json::to_value(env).unwrap_or(Value::Null);
-            }
-        }
-
-        // 3. Error status with custom JSON body.
+        // 2. Error status with custom JSON body.
         if status.is_client_error() || status.is_server_error() {
             let detail = parsed
                 .get("detail")
@@ -362,7 +348,7 @@ pub fn normalize_to_envelope(status: StatusCode, request_id: &str, body_bytes: &
             return serde_json::to_value(env).unwrap_or(Value::Null);
         }
 
-        // 4. 2xx JSON payload (object or array): wrap in `data` and populate `meta.count` for arrays.
+        // 3. 2xx JSON payload (object or array): wrap in `data` and populate `meta.count` for arrays.
         let count = parsed.as_array().map(|a| a.len());
         let detail = if parsed.is_object()
             && parsed.as_object().map(|m| m.len() == 1 && m.contains_key("message")).unwrap_or(false)
@@ -385,7 +371,7 @@ pub fn normalize_to_envelope(status: StatusCode, request_id: &str, body_bytes: &
         return serde_json::to_value(env).unwrap_or(Value::Null);
     }
 
-    // 5. Empty or plain-text body (e.g. `200 OK` with empty body or Axum extractor rejection text).
+    // 4. Empty or plain-text body (e.g. `200 OK` with empty body or Axum extractor rejection text).
     let text = String::from_utf8_lossy(body_bytes).trim().to_string();
     let detail = if text.is_empty() { None } else { Some(text) };
     let status_out = if status == StatusCode::NO_CONTENT {
@@ -516,20 +502,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn converts_legacy_errors_and_api_errors_into_envelope() {
+    async fn converts_plain_errors_and_api_errors_into_envelope() {
         let app = Router::new()
             .route(
-                "/api/v1/legacy-err",
-                get(|| async {
-                    let err = crate::handlers::ErrorResponse {
-                        errors: vec![crate::handlers::JsonApiError {
-                            status: "403".into(),
-                            title: "Forbidden".into(),
-                            detail: Some("Access denied".into()),
-                        }],
-                    };
-                    (StatusCode::FORBIDDEN, Json(err))
-                }),
+                "/api/v1/plain-err",
+                get(|| async { (StatusCode::FORBIDDEN, "Access denied") }),
             )
             .route(
                 "/api/v1/typed-err",
@@ -539,7 +516,7 @@ mod tests {
 
         let res = app
             .clone()
-            .oneshot(Request::builder().uri("/api/v1/legacy-err").body(Body::empty()).unwrap())
+            .oneshot(Request::builder().uri("/api/v1/plain-err").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
@@ -566,6 +543,70 @@ mod tests {
         assert_eq!(body2["code"], "VALIDATION_FAILED");
         assert_eq!(body2["detail"], "Invalid cron expression");
         assert!(body2["data"].is_null());
+    }
+
+    #[tokio::test]
+    async fn created_keeps_location_and_internal_hides_cause() {
+        let app = Router::new()
+            .route(
+                "/api/v1/things",
+                post(|| async { ApiResponse::created_at("/api/v1/things/7", serde_json::json!({ "id": 7 })) }),
+            )
+            .route(
+                "/api/v1/broken",
+                get(|| async { ApiError::internal_logged("Database error", "relation \"secret\" does not exist") }),
+            )
+            .layer(axum::middleware::from_fn(request_id_and_envelope_middleware));
+
+        let res = app
+            .clone()
+            .oneshot(Request::builder().method("POST").uri("/api/v1/things").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        assert_eq!(res.headers().get(axum::http::header::LOCATION).unwrap(), "/api/v1/things/7");
+        let header_id = res.headers().get(&X_REQUEST_ID).unwrap().to_str().unwrap().to_string();
+        let body = read_json(res).await;
+        assert_eq!(body["id"], header_id);
+        assert_eq!(body["status"], 201);
+        assert_eq!(body["code"], "CREATED");
+        assert_eq!(body["data"]["id"], 7);
+
+        let res = app
+            .oneshot(Request::builder().uri("/api/v1/broken").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = read_json(res).await;
+        assert_eq!(body["code"], "INTERNAL_ERROR");
+        assert_eq!(body["detail"], "Database error");
+        assert!(!body.to_string().contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn json_extractor_rejection_becomes_validation_envelope() {
+        #[derive(Deserialize)]
+        struct Body2 { #[allow(dead_code)] n: i32 }
+        let app = Router::new()
+            .route("/api/v1/typed", post(|Json(_b): Json<Body2>| async { ApiResponse::ok(1) }))
+            .layer(axum::middleware::from_fn(request_id_and_envelope_middleware));
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/typed")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"n":"not a number"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = read_json(res).await;
+        assert_eq!(body["code"], "VALIDATION_FAILED");
+        assert!(body["data"].is_null());
+        assert!(body["detail"].is_string());
     }
 
     #[tokio::test]

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-11-17
+
+API standardization: RMM Level 2 and a unified response envelope ([#93](https://github.com/Zheng-Bote/mitm_core-layer/issues/93)). **Breaking** for API clients.
+
+### Changed
+- **Response envelope:** every JSON response under `/api/v1/*` (success and error) is `{id, status, code, title, detail, meta, data}`; the payload moved into `data`, collections report `meta.count` (paginated ones also `meta.limit`/`meta.offset`). The legacy error format `{"errors": [...]}` is gone. FlatBuffers responses and OIDC redirects are unchanged.
+- **Request id:** every response carries `X-Request-ID` (a valid UUID sent by the client is reused); it equals the envelope `id`.
+- **Status codes:** `201 Created` + `Location` for `POST /api/v1/iam/users`, `/config/credentials`, `/config/targets` and `/jobs`; `202 Accepted` for `POST /jobs/:name/execute`, `/jobs/:name/stop` and `/jobs/upload/source_file`; `404` for updates and deletions of unknown resources (users, jobs, credentials, targets, transformation configuration); `422` instead of `400` for invalid usernames, backup version mismatch and invalid base64 in key rotation. Deleting credentials or delivery targets answers `200` (`DELETED`) instead of `204`.
+- `POST /api/v1/jobs` now creates a single job (`409` if the name exists) instead of upserting a list.
+
+### Added
+- `PUT /api/v1/iam/users/:id/roles` (`{"role_ids": [...]}`), `PUT /api/v1/jobs/:name`, `PUT` and `DELETE /api/v1/config/transformations/topic-dependencies/:topic`.
+- Job definitions are validated (non-empty `name`/`command`, parseable `cron_expr`) with `422`.
+
+### Removed
+- `POST /api/v1/iam/assign-role`, `POST` and `DELETE /api/v1/config/transformations/topic-dependencies` (query parameter `topic`).
+
+### Security
+- `500` responses no longer expose SQL, IPC or I/O error texts in `detail`; the cause is logged server-side.
+
 ## [3.4.1] - 2026-11-17
 
 ### Fixed

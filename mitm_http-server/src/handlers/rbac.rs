@@ -3,14 +3,13 @@
  */
 
 use axum::{
-    extract::{State, Query, Path},
-    http::StatusCode,
-    response::IntoResponse,
+    extract::{State, Path},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 use mitm_common::crypto;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rand::{rngs::OsRng, RngCore};
@@ -23,22 +22,16 @@ pub struct Role {
     pub name: String,
 }
 
-pub async fn handle_get_roles(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_get_roles(State(state): State<AppState>) -> Response {
     match sqlx::query_as::<_, Role>("SELECT id, name FROM roles ORDER BY id ASC")
         .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
-        Ok(roles) => (StatusCode::OK, Json(roles)).into_response(),
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database Error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
+        Ok(roles) => {
+            let count = roles.len();
+            ApiResponse::ok(roles).with_count(count).into_response()
         }
+        Err(e) => ApiError::internal_logged("Failed to load roles", e).into_response(),
     }
 }
 
@@ -55,22 +48,16 @@ pub struct User {
 
 const USER_COLUMNS: &str = "id, username, first_name, last_name, department, email, is_active";
 
-pub async fn handle_get_users(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn handle_get_users(State(state): State<AppState>) -> Response {
     match sqlx::query_as::<_, User>(&format!("SELECT {USER_COLUMNS} FROM admin_users ORDER BY id ASC"))
         .fetch_all(&state.repo.get().unwrap().pool)
         .await
     {
-        Ok(users) => (StatusCode::OK, Json(users)).into_response(),
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database Error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
+        Ok(users) => {
+            let count = users.len();
+            ApiResponse::ok(users).with_count(count).into_response()
         }
+        Err(e) => ApiError::internal_logged("Failed to load users", e).into_response(),
     }
 }
 
@@ -93,12 +80,9 @@ fn email_value(email: &str) -> Option<&str> {
 pub async fn handle_create_user(
     State(state): State<AppState>,
     Json(payload): Json<CreateUserReq>,
-) -> impl IntoResponse {
+) -> Response {
     let Some(username) = mitm_common::username::normalize(&payload.username) else {
-        let err = ErrorResponse {
-            errors: vec![JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Username must match ^[A-Z0-9._-]{1,64}$ (case-insensitive).".into()) }]
-        };
-        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        return ApiError::validation_failed("Username must match ^[A-Z0-9._-]{1,64}$ (case-insensitive).").into_response();
     };
 
     let mut salt = [0u8; 16];
@@ -106,12 +90,7 @@ pub async fn handle_create_user(
     
     let hash = match crypto::derive_key(payload.password.as_bytes(), &salt) {
         Ok(h) => h,
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError { status: "500".into(), title: "Crypto error".into(), detail: Some(e.to_string()) }]
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
-        }
+        Err(e) => return ApiError::internal_logged("Failed to hash password", e).into_response(),
     };
     
     let hash_str = format!("{}:{}", BASE64.encode(salt), BASE64.encode(hash));
@@ -128,19 +107,11 @@ pub async fn handle_create_user(
         .fetch_one(&state.repo.get().unwrap().pool)
         .await 
     {
-        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
+        Ok(id) => ApiResponse::created_at(&format!("/api/v1/iam/users/{}", id), serde_json::json!({ "id": id })),
         Err(e) if e.as_database_error().is_some_and(|d| d.is_unique_violation()) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError { status: "409".into(), title: "Conflict".into(), detail: Some(format!("User {} already exists.", username)) }]
-            };
-            (StatusCode::CONFLICT, Json(err)).into_response()
+            ApiError::conflict(format!("User {} already exists.", username)).into_response()
         }
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError { status: "500".into(), title: "Database error".into(), detail: Some(e.to_string()) }]
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
+        Err(e) => ApiError::internal_logged("Failed to create user", e).into_response(),
     }
 }
 
@@ -157,7 +128,7 @@ pub async fn handle_edit_user(
     State(state): State<AppState>,
     Path(id): Path<i32>,
     Json(payload): Json<EditUserReq>,
-) -> impl IntoResponse {
+) -> Response {
     let mut update_query = "UPDATE admin_users SET ".to_string();
     let mut param_idx = 1;
     let mut binds_str: Vec<String> = vec![];
@@ -181,23 +152,19 @@ pub async fn handle_edit_user(
         q = q.bind(id);
 
         match q.execute(&state.repo.get().unwrap().pool).await {
-            Ok(_) => StatusCode::OK.into_response(),
-            Err(e) => {
-                let err = ErrorResponse {
-                    errors: vec![JsonApiError { status: "500".into(), title: "Database error".into(), detail: Some(e.to_string()) }]
-                };
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-            }
+            Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("User {} not found.", id)).into_response(),
+            Ok(_) => ApiResponse::updated(format!("User {} updated", id), None).into_response(),
+            Err(e) => ApiError::internal_logged("Failed to update user", e).into_response(),
         }
     } else {
-        StatusCode::OK.into_response()
+        ApiResponse::updated(format!("User {} unchanged", id), None).into_response()
     }
 }
 
 pub async fn handle_terminate_session(
     State(state): State<AppState>,
     Path(id): Path<i32>,
-) -> impl IntoResponse {
+) -> Response {
     // Delete session for user id. We need the username first.
     let user_res: Result<Option<(String,)>, _> = sqlx::query_as("SELECT username FROM admin_users WHERE id = $1")
         .bind(id)
@@ -210,60 +177,54 @@ pub async fn handle_terminate_session(
             .execute(&state.repo.get().unwrap().pool)
             .await 
         {
-            Ok(_) => StatusCode::OK.into_response(),
-            Err(e) => {
-                let err = ErrorResponse {
-                    errors: vec![JsonApiError { status: "500".into(), title: "Database error".into(), detail: Some(e.to_string()) }]
-                };
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-            }
+            Ok(_) => ApiResponse::deleted(format!("Sessions of user {} terminated", id)).into_response(),
+            Err(e) => ApiError::internal_logged("Failed to terminate sessions", e).into_response(),
         }
     } else {
-        StatusCode::NOT_FOUND.into_response()
+        ApiError::not_found(format!("User {} not found.", id)).into_response()
     }
-}
-
-#[derive(Deserialize)]
-pub struct UserIdQuery {
-    pub id: i32,
 }
 
 pub async fn handle_delete_user(
     State(state): State<AppState>,
-    Query(query): Query<UserIdQuery>,
-) -> impl IntoResponse {
+    Path(id): Path<i32>,
+) -> Response {
     match sqlx::query("DELETE FROM admin_users WHERE id = $1")
-        .bind(query.id)
+        .bind(id)
         .execute(&state.repo.get().unwrap().pool)
         .await 
     {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError { status: "500".into(), title: "Database error".into(), detail: Some(e.to_string()) }]
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
+        Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("User {} not found.", id)).into_response(),
+        Ok(_) => ApiResponse::deleted(format!("User {} deleted", id)).into_response(),
+        Err(e) => ApiError::internal_logged("Failed to delete user", e).into_response(),
     }
 }
 
+/// Body of `PUT /api/v1/iam/users/:id/roles`.
 #[derive(Deserialize)]
-pub struct AssignRolesReq {
-    pub user_id: i32,
+pub struct SetRolesReq {
     pub role_ids: Vec<i32>,
 }
 
-pub async fn handle_assign_roles(
+/// `PUT /api/v1/iam/users/:id/roles`: replaces the user's role assignment.
+pub async fn handle_set_user_roles(
     State(state): State<AppState>,
     axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
-    Json(payload): Json<AssignRolesReq>,
-) -> impl IntoResponse {
+    Path(user_id): Path<i32>,
+    Json(payload): Json<SetRolesReq>,
+) -> Response {
+    match sqlx::query_scalar::<_, i32>("SELECT id FROM admin_users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.repo.get().unwrap().pool)
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => return ApiError::not_found(format!("User {} not found.", user_id)).into_response(),
+        Err(e) => return ApiError::internal_logged("Failed to load user", e).into_response(),
+    }
     let roles_json = match serde_json::to_vec(&payload.role_ids) {
         Ok(v) => v,
-        Err(e) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "JSON error".into(), detail: Some(e.to_string()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
-        }
+        Err(e) => return ApiError::internal_logged("Failed to serialize roles", e).into_response(),
     };
     let socket_dir = std::path::PathBuf::from(&state.config.socket_dir);
     let socket_path = socket_dir.join("mitm_scheduler.sock");
@@ -277,7 +238,7 @@ pub async fn handle_assign_roles(
             Some(row.get::<Vec<u8>, _>("wrapped_key"))
         },
         Ok(None) => None,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+        Err(e) => return ApiError::internal_logged("Failed to load storage key", e).into_response(),
     };
 
     let wrapped_dek = match active_dek_row {
@@ -285,17 +246,14 @@ pub async fn handle_assign_roles(
         None => {
             match crate::ipc_client::crypto_generate_wrapped_dek(&socket_path).await {
                 Ok(dek) => dek,
-                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Failed to generate wrapped DEK".into(), detail: Some(e.to_string()) }] })).into_response(),
+                Err(e) => return ApiError::internal_logged("Failed to generate wrapped DEK", e).into_response(),
             }
         }
     };
 
     let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_dek.clone(), roles_json, &socket_path).await {
         Ok(res) => res,
-        Err(e) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "IPC Crypto error".into(), detail: Some(e.to_string()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
-        }
+        Err(e) => return ApiError::internal_logged("Failed to encrypt roles", e).into_response(),
     };
 
     match sqlx::query(
@@ -307,20 +265,17 @@ pub async fn handle_assign_roles(
          encrypted_roles = EXCLUDED.encrypted_roles, 
          updated_at = CURRENT_TIMESTAMP"
     )
-    .bind(payload.user_id)
+    .bind(user_id)
     .bind(wrapped_dek)
     .bind(nonce)
     .bind(ciphertext)
     .execute(&state.repo.get().unwrap().pool)
     .await {
         Ok(_) => {
-            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::ASSIGN_ROLES, serde_json::json!({"user_id": payload.user_id, "roles": payload.role_ids})).await;
-            StatusCode::OK.into_response()
+            state.repo.get().unwrap().audit(&auth.username, crate::audit::action::ASSIGN_ROLES, serde_json::json!({"user_id": user_id, "roles": payload.role_ids})).await;
+            ApiResponse::updated(format!("Roles of user {} updated", user_id), Some(serde_json::json!({ "role_ids": payload.role_ids }))).into_response()
         },
-        Err(e) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "DB error".into(), detail: Some(e.to_string()) }] };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
-        }
+        Err(e) => ApiError::internal_logged("Failed to store roles", e).into_response(),
     }
 }
 
@@ -334,25 +289,19 @@ pub struct UserDetail {
 pub async fn handle_get_user(
     State(state): State<AppState>,
     Path(id): Path<i32>,
-) -> impl IntoResponse {
+) -> Response {
     let user = match sqlx::query_as::<_, User>(&format!("SELECT {USER_COLUMNS} FROM admin_users WHERE id = $1"))
         .bind(id)
         .fetch_optional(&state.repo.get().unwrap().pool)
         .await
     {
         Ok(Some(u)) => u,
-        Ok(None) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "404".into(), title: "Not Found".into(), detail: Some(format!("User {} not found.", id)) }] };
-            return (StatusCode::NOT_FOUND, Json(err)).into_response();
-        }
-        Err(e) => {
-            let err = ErrorResponse { errors: vec![JsonApiError { status: "500".into(), title: "Database Error".into(), detail: Some(e.to_string()) }] };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
-        }
+        Ok(None) => return ApiError::not_found(format!("User {} not found.", id)).into_response(),
+        Err(e) => return ApiError::internal_logged("Failed to load user", e).into_response(),
     };
 
     let role_ids = load_role_ids(&state, id).await;
-    (StatusCode::OK, Json(UserDetail { user, role_ids })).into_response()
+    ApiResponse::ok(UserDetail { user, role_ids }).into_response()
 }
 
 /// Decrypts the user's role IDs; an unreadable or missing assignment yields no roles.

@@ -1,25 +1,12 @@
-use axum::{Router, routing::{get, post}, extract::{State, Path, Query}};
+use axum::{Router, routing::{get, put}};
 use crate::handlers::AppState;
-use axum::response::IntoResponse;
+use crate::handlers::rbac;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/users", get(crate::handlers::rbac::handle_get_users))
-        .route("/users", post(crate::handlers::rbac::handle_create_user))
-        .route("/users/:id", get(crate::handlers::rbac::handle_get_user).delete(handle_delete_user_v1).put(handle_edit_user_v1))
-        .route("/users/:id/session", axum::routing::delete(handle_terminate_session_v1))
-        .route("/roles", get(crate::handlers::rbac::handle_get_roles))
-        .route("/assign-role", post(crate::handlers::rbac::handle_assign_roles))
-}
-
-async fn handle_delete_user_v1(State(state): State<AppState>, Path(id): Path<i32>) -> impl IntoResponse {
-    crate::handlers::rbac::handle_delete_user(State(state), Query(crate::handlers::rbac::UserIdQuery { id })).await
-}
-
-async fn handle_edit_user_v1(State(state): State<AppState>, Path(id): Path<i32>, axum::extract::Json(payload): axum::extract::Json<crate::handlers::rbac::EditUserReq>) -> impl IntoResponse {
-    crate::handlers::rbac::handle_edit_user(State(state), Path(id), axum::extract::Json(payload)).await
-}
-
-async fn handle_terminate_session_v1(State(state): State<AppState>, Path(id): Path<i32>) -> impl IntoResponse {
-    crate::handlers::rbac::handle_terminate_session(State(state), Path(id)).await
+        .route("/users", get(rbac::handle_get_users).post(rbac::handle_create_user))
+        .route("/users/:id", get(rbac::handle_get_user).put(rbac::handle_edit_user).delete(rbac::handle_delete_user))
+        .route("/users/:id/roles", put(rbac::handle_set_user_roles))
+        .route("/users/:id/session", axum::routing::delete(rbac::handle_terminate_session))
+        .route("/roles", get(rbac::handle_get_roles))
 }

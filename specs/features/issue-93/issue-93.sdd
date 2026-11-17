@@ -31,8 +31,8 @@ Must not:
 Tasks:
   [x] #1 Anchor RMM Level 2 and unified JSON response envelope rules in `api_spec.sdd` and `mitm_http-server.sdd`.
   [x] #2 Implement `RequestId` middleware, `@ApiResponse`, and `@ApiError` in `mitm_http-server`.
-  [ ] #3 Migrate `/api/v1/*` handlers and add RMM Level 2 resource routes (`PUT /api/v1/iam/users/:id/roles`, `PUT /api/v1/jobs/:name`, `PUT`/`DELETE /api/v1/config/transformations/topic-dependencies/:topic`) and Casbin policies.
-  [ ] #4 Update `docs/api/api_v1.md`, `CHANGELOG.md`, and unit tests.
+  [x] #3 Migrate `/api/v1/*` handlers and add RMM Level 2 resource routes (`PUT /api/v1/iam/users/:id/roles`, `PUT /api/v1/jobs/:name`, `PUT`/`DELETE /api/v1/config/transformations/topic-dependencies/:topic`) and Casbin policies.
+  [x] #4 Update `docs/api/api_v1.md`, `CHANGELOG.md`, and unit tests.
 
 Done when:
   `cargo test` and `cargo build --release` succeed across the `core-layer` workspace and all `/api/v1/*` JSON responses conform to the envelope contract.

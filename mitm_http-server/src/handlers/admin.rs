@@ -4,7 +4,6 @@
 
 use axum::{
     extract::State,
-    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -12,7 +11,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::handlers::{AppState, ErrorResponse, JsonApiError};
+use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 
 
 
@@ -46,14 +45,7 @@ pub async fn handle_backup(State(state): State<AppState>, axum::extract::Extensi
         let rows = match sqlx::query(&query_str).fetch_all(&state.repo.get().unwrap().pool).await {
             Ok(r) => r,
             Err(e) => {
-                let err = ErrorResponse {
-                    errors: vec![JsonApiError {
-                        status: "500".into(),
-                        title: format!("Failed to export table {}", table),
-                        detail: Some(e.to_string()),
-                    }],
-                };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+                return ApiError::internal_logged(&format!("Failed to export table {}", table), e).into_response();
             }
         };
 
@@ -74,7 +66,7 @@ pub async fn handle_backup(State(state): State<AppState>, axum::extract::Extensi
         data,
     };
 
-    (StatusCode::OK, Json(payload)).into_response()
+    ApiResponse::ok(payload).into_response()
 }
 
 pub async fn handle_restore(
@@ -83,17 +75,11 @@ pub async fn handle_restore(
     Json(payload): Json<BackupPayload>,
 ) -> impl IntoResponse {
     if payload.version != env!("CARGO_PKG_VERSION") {
-        let err = ErrorResponse {
-            errors: vec![JsonApiError {
-                status: "400".into(),
-                title: format!(
-                    "Version mismatch: cannot restore backup from version {}",
-                    payload.version
-                ),
-                detail: None,
-            }],
-        };
-        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        return ApiError::validation_failed(format!(
+            "Version mismatch: cannot restore backup from version {}",
+            payload.version
+        ))
+        .into_response();
     }
 
     let tables = vec![
@@ -111,14 +97,7 @@ pub async fn handle_restore(
     let mut tx = match state.repo.get().unwrap().pool.begin().await {
         Ok(t) => t,
         Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database Error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal_logged("Database Error", e).into_response();
         }
     };
 
@@ -127,14 +106,7 @@ pub async fn handle_restore(
             let delete_query = format!("DELETE FROM {}", table);
             if let Err(e) = sqlx::query(&delete_query).execute(&mut *tx).await {
                 let _ = tx.rollback().await;
-                let err = ErrorResponse {
-                    errors: vec![JsonApiError {
-                        status: "500".into(),
-                        title: format!("Failed to clear table {}", table),
-                        detail: Some(e.to_string()),
-                    }],
-                };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+                return ApiError::internal_logged(&format!("Failed to clear table {}", table), e).into_response();
             }
 
             let insert_query = format!(
@@ -144,33 +116,19 @@ pub async fn handle_restore(
             for row in rows_data {
                 if let Err(e) = sqlx::query(&insert_query).bind(row).execute(&mut *tx).await {
                     let _ = tx.rollback().await;
-                    let err = ErrorResponse {
-                        errors: vec![JsonApiError {
-                            status: "500".into(),
-                            title: format!("Failed to insert row into {}", table),
-                            detail: Some(e.to_string()),
-                        }],
-                    };
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+                    return ApiError::internal_logged(&format!("Failed to insert row into {}", table), e).into_response();
                 }
             }
         }
     }
 
     if let Err(e) = tx.commit().await {
-        let err = ErrorResponse {
-            errors: vec![JsonApiError {
-                status: "500".into(),
-                title: "Failed to commit transaction".into(),
-                detail: Some(e.to_string()),
-            }],
-        };
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        return ApiError::internal_logged("Failed to commit transaction", e).into_response();
     }
 
     state.repo.get().unwrap().audit(&auth.username, crate::audit::action::RESTORE_CONFIG, serde_json::json!({})).await;
 
-    StatusCode::OK.into_response()
+    ApiResponse::updated("Configuration restored", None).into_response()
 }
 
 #[derive(Deserialize)]
@@ -194,27 +152,13 @@ pub async fn handle_key_rotation(
     let nonce_bytes = match base64::engine::general_purpose::STANDARD.decode(&payload.nonce) {
         Ok(b) => b,
         Err(_) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "400".into(),
-                    title: "Invalid base64 encoding for nonce".into(),
-                    detail: None,
-                }],
-            };
-            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+            return ApiError::validation_failed("Invalid base64 encoding for nonce").into_response();
         }
     };
     let cipher_bytes = match base64::engine::general_purpose::STANDARD.decode(&payload.ciphertext) {
         Ok(b) => b,
         Err(_) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "400".into(),
-                    title: "Invalid base64 encoding for ciphertext".into(),
-                    detail: None,
-                }],
-            };
-            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+            return ApiError::validation_failed("Invalid base64 encoding for ciphertext").into_response();
         }
     };
 
@@ -233,14 +177,7 @@ pub async fn handle_key_rotation(
     let mut tx = match state.repo.get().unwrap().pool.begin().await {
         Ok(t) => t,
         Err(e) => {
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal_logged("Database error", e).into_response();
         }
     };
 
@@ -251,14 +188,7 @@ pub async fn handle_key_rotation(
         Ok(res) => res.rows_affected(),
         Err(e) => {
             let _ = tx.rollback().await;
-            let err = ErrorResponse {
-                errors: vec![JsonApiError {
-                    status: "500".into(),
-                    title: "Database error".into(),
-                    detail: Some(e.to_string()),
-                }],
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+            return ApiError::internal_logged("Database error", e).into_response();
         }
     };
 
@@ -268,30 +198,16 @@ pub async fn handle_key_rotation(
         .await
     {
         let _ = tx.rollback().await;
-        let err = ErrorResponse {
-            errors: vec![JsonApiError {
-                status: "500".into(),
-                title: "Database error".into(),
-                detail: Some(e.to_string()),
-            }],
-        };
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        return ApiError::internal_logged("Database error", e).into_response();
     }
 
     if let Err(e) = tx.commit().await {
-        let err = ErrorResponse {
-            errors: vec![JsonApiError {
-                status: "500".into(),
-                title: "Database error".into(),
-                detail: Some(e.to_string()),
-            }],
-        };
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response();
+        return ApiError::internal_logged("Database error", e).into_response();
     }
 
     state.repo.get().unwrap().audit(&auth.username, crate::audit::action::KEY_ROTATION_SUCCESS, serde_json::json!({"deactivated_count": deact})).await;
 
-    (StatusCode::OK, "Key rotation successful").into_response()
+    ApiResponse::updated("Key rotation successful", Some(serde_json::json!({ "deactivated_count": deact }))).into_response()
 }
 
 pub async fn handle_get_storage_keys(State(state): State<AppState>) -> impl IntoResponse {
@@ -321,7 +237,8 @@ pub async fn handle_get_storage_keys(State(state): State<AppState>) -> impl Into
         }
     }
 
-    (StatusCode::OK, Json(keys)).into_response()
+    let count = keys.len();
+    ApiResponse::ok(keys).with_count(count).into_response()
 }
 
 
@@ -381,7 +298,7 @@ pub async fn handle_credentials(State(state): axum::extract::State<crate::handle
     ";
     let rows = match sqlx::query_as::<_, SourceCredentialRow>(query).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+        Err(e) => return ApiError::internal_logged("Database error", e).into_response(),
     };
     
     let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
@@ -402,7 +319,8 @@ pub async fn handle_credentials(State(state): axum::extract::State<crate::handle
         });
     }
 
-    (axum::http::StatusCode::OK, axum::Json(results)).into_response()
+    let count = results.len();
+    ApiResponse::ok(results).with_count(count).into_response()
 }
 
 pub async fn handle_delivery_targets(State(state): axum::extract::State<crate::handlers::AppState>) -> impl axum::response::IntoResponse {
@@ -413,7 +331,7 @@ pub async fn handle_delivery_targets(State(state): axum::extract::State<crate::h
     ";
     let rows = match sqlx::query_as::<_, DeliveryTargetRow>(query).fetch_all(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+        Err(e) => return ApiError::internal_logged("Database error", e).into_response(),
     };
     
     let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
@@ -434,7 +352,8 @@ pub async fn handle_delivery_targets(State(state): axum::extract::State<crate::h
         });
     }
 
-    (axum::http::StatusCode::OK, axum::Json(results)).into_response()
+    let count = results.len();
+    ApiResponse::ok(results).with_count(count).into_response()
 }
 
 pub async fn handle_post_credentials(
@@ -447,7 +366,7 @@ pub async fn handle_post_credentials(
     let key_row: Option<(uuid::Uuid, Vec<u8>)> = match sqlx::query_as("SELECT id, wrapped_key FROM storage_keys WHERE is_active = true LIMIT 1")
         .fetch_optional(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+        Err(e) => return ApiError::internal_logged("Database error", e).into_response(),
     };
     
     let (dek_id, wrapped_key) = match key_row {
@@ -459,11 +378,11 @@ pub async fn handle_post_credentials(
                         .bind(&new_wrapped_dek)
                         .fetch_one(&state.repo.get().unwrap().pool).await {
                             Ok(id) => id,
-                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("DB Error: {}", e)) }] })).into_response(),
+                            Err(e) => return ApiError::internal_logged("Database error", e).into_response(),
                         };
                     (new_id, new_wrapped_dek)
                 },
-                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("IPC Crypto Error: {}", e)) }] })).into_response(),
+                Err(e) => return ApiError::internal_logged("Encryption failed", e).into_response(),
             }
         }
     };
@@ -471,7 +390,7 @@ pub async fn handle_post_credentials(
 
     let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, std::mem::take(&mut payload.config_payload).into_bytes(), &socket_path).await {
         Ok(res) => res,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => return ApiError::internal_logged("Encryption failed", e).into_response(),
     };
     
     if payload.id.is_none() || payload.id.as_ref().unwrap().is_empty() {
@@ -491,14 +410,14 @@ pub async fn handle_post_credentials(
             .fetch_one(&state.repo.get().unwrap().pool).await {
             Ok(id) => {
                 state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_CREDENTIAL, credential_audit_details(id, &payload, "create")).await;
-                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response()
+                ApiResponse::created_at(&format!("/api/v1/config/credentials/{}", id), serde_json::json!({ "id": id }))
             },
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+            Err(e) => ApiError::internal_logged("Database error", e).into_response(),
         }
     } else {
         let id_uuid = match uuid::Uuid::parse_str(payload.id.as_ref().unwrap()) {
             Ok(u) => u,
-            Err(_) => return (axum::http::StatusCode::BAD_REQUEST, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Invalid UUID".into()) }] })).into_response(),
+            Err(_) => return ApiError::bad_request("Invalid UUID").into_response(),
         };
         
         let update_query = "
@@ -516,11 +435,12 @@ pub async fn handle_post_credentials(
             .bind(payload.is_active)
             .bind(id_uuid)
             .execute(&state.repo.get().unwrap().pool).await {
+            Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("Credential {} not found", id_uuid)).into_response(),
             Ok(_) => {
                 state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_CREDENTIAL, credential_audit_details(id_uuid, &payload, "update")).await;
-                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response()
+                ApiResponse::updated(format!("Credential {} updated", id_uuid), Some(serde_json::json!({ "id": id_uuid }))).into_response()
             },
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+            Err(e) => ApiError::internal_logged("Database error", e).into_response(),
         }
     }
 }
@@ -559,7 +479,7 @@ pub async fn handle_post_delivery_targets(
     let key_row: Option<(uuid::Uuid, Vec<u8>)> = match sqlx::query_as("SELECT id, wrapped_key FROM storage_keys WHERE is_active = true LIMIT 1")
         .fetch_optional(&state.repo.get().unwrap().pool).await {
         Ok(r) => r,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+        Err(e) => return ApiError::internal_logged("Database error", e).into_response(),
     };
     
     let (dek_id, wrapped_key) = match key_row {
@@ -571,11 +491,11 @@ pub async fn handle_post_delivery_targets(
                         .bind(&new_wrapped_dek)
                         .fetch_one(&state.repo.get().unwrap().pool).await {
                             Ok(id) => id,
-                            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("DB Error: {}", e)) }] })).into_response(),
+                            Err(e) => return ApiError::internal_logged("Database error", e).into_response(),
                         };
                     (new_id, new_wrapped_dek)
                 },
-                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(format!("IPC Crypto Error: {}", e)) }] })).into_response(),
+                Err(e) => return ApiError::internal_logged("Encryption failed", e).into_response(),
             }
         }
     };
@@ -583,7 +503,7 @@ pub async fn handle_post_delivery_targets(
 
     let (nonce, ciphertext) = match crate::ipc_client::crypto_encrypt(wrapped_key, std::mem::take(&mut payload.config_payload).into_bytes(), &socket_path).await {
         Ok(res) => res,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => return ApiError::internal_logged("Encryption failed", e).into_response(),
     };
     
     if payload.id.is_none() || payload.id.as_ref().unwrap().is_empty() {
@@ -603,14 +523,14 @@ pub async fn handle_post_delivery_targets(
             .fetch_one(&state.repo.get().unwrap().pool).await {
             Ok(id) => {
                 state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TARGET_CREDENTIAL, target_audit_details(id, &payload, "create")).await;
-                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "created"}))).into_response()
+                ApiResponse::created_at(&format!("/api/v1/config/targets/{}", id), serde_json::json!({ "id": id }))
             },
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+            Err(e) => ApiError::internal_logged("Database error", e).into_response(),
         }
     } else {
         let id_uuid = match uuid::Uuid::parse_str(payload.id.as_ref().unwrap()) {
             Ok(u) => u,
-            Err(_) => return (axum::http::StatusCode::BAD_REQUEST, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "400".into(), title: "Bad Request".into(), detail: Some("Invalid UUID".into()) }] })).into_response(),
+            Err(_) => return ApiError::bad_request("Invalid UUID").into_response(),
         };
         
         let update_query = "
@@ -628,11 +548,12 @@ pub async fn handle_post_delivery_targets(
             .bind(payload.is_active)
             .bind(id_uuid)
             .execute(&state.repo.get().unwrap().pool).await {
+            Ok(r) if r.rows_affected() == 0 => ApiError::not_found(format!("Delivery target {} not found", id_uuid)).into_response(),
             Ok(_) => {
                 state.repo.get().unwrap().audit(&auth.username, crate::audit::action::UPSERT_TARGET_CREDENTIAL, target_audit_details(id_uuid, &payload, "update")).await;
-                (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"status": "updated"}))).into_response()
+                ApiResponse::updated(format!("Delivery target {} updated", id_uuid), Some(serde_json::json!({ "id": id_uuid }))).into_response()
             },
-            Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response(),
+            Err(e) => ApiError::internal_logged("Database error", e).into_response(),
         }
     }
 }
@@ -650,12 +571,12 @@ pub async fn handle_delete_credentials(
         Ok(result) => {
             if result.rows_affected() > 0 {
                 state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_CREDENTIAL, serde_json::json!({"id": id.to_string()})).await;
-                StatusCode::NO_CONTENT.into_response()
+                ApiResponse::deleted(format!("Credential {} deleted", id)).into_response()
             } else {
-                StatusCode::NOT_FOUND.into_response()
+                ApiError::not_found(format!("Credential {} not found", id)).into_response()
             }
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
 
@@ -672,11 +593,11 @@ pub async fn handle_delete_delivery_targets(
         Ok(result) => {
             if result.rows_affected() > 0 {
                 state.repo.get().unwrap().audit(&auth.username, crate::audit::action::DELETE_TARGET_CREDENTIAL, serde_json::json!({"id": id.to_string()})).await;
-                StatusCode::NO_CONTENT.into_response()
+                ApiResponse::deleted(format!("Delivery target {} deleted", id)).into_response()
             } else {
-                StatusCode::NOT_FOUND.into_response()
+                ApiError::not_found(format!("Delivery target {} not found", id)).into_response()
             }
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(crate::handlers::ErrorResponse { errors: vec![crate::handlers::JsonApiError { status: "500".into(), title: "Internal Server Error".into(), detail: Some(e.to_string()) }] })).into_response()
+        Err(e) => ApiError::internal_logged("Database error", e).into_response()
     }
 }
