@@ -88,6 +88,38 @@ async fn readiness_middleware(
     next.run(req).await
 }
 
+async fn terminate_child_gracefully(
+    name: &str,
+    child: &mut tokio::process::Child,
+    timeout: std::time::Duration,
+) {
+    if let Ok(Some(_)) = child.try_wait() {
+        return;
+    }
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        if pid > 0 {
+            log::info!("Sending SIGTERM to {} (PID: {})", name, pid);
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+        }
+    }
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => {
+            log::info!("{} exited gracefully ({})", name, status);
+        }
+        Ok(Err(e)) => {
+            log::warn!("Error waiting for {} to exit: {}", name, e);
+        }
+        Err(_) => {
+            log::warn!("{} did not exit within {:?}, sending SIGKILL", name, timeout);
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().filter_or("MITM_LOG_LEVEL", "info")).init();
@@ -385,13 +417,13 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
         let _ = repo.log_system("INFO", "http-server", shutdown_msg).await;
     }
     log::info!("Forwarding shutdown signals to children...");
-    
-    // Child-Prozesse beenden
-    let _ = iam_child.kill().await;
-    let _ = scheduler_child.kill().await;
 
-    // Graceful Shutdown für den Webserver
-    handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
+    // Graceful Shutdown für den Webserver anstoßen
+    handle.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
+
+    // Child-Prozesse kontrolliert per SIGTERM beenden (Scheduler zuerst, damit laufende Jobs sauber herunterfahren)
+    terminate_child_gracefully("scheduler-server", &mut scheduler_child, std::time::Duration::from_secs(20)).await;
+    terminate_child_gracefully("iam-server", &mut iam_child, std::time::Duration::from_secs(5)).await;
 
     if exit_code != 0 {
         std::process::exit(exit_code);
@@ -402,8 +434,9 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
 
 #[cfg(test)]
 mod tests {
-    use super::http_error_log_entry;
+    use super::{http_error_log_entry, terminate_child_gracefully};
     use axum::http::{Method, StatusCode, Uri};
+    use std::time::Duration;
 
     #[test]
     fn client_errors_are_warnings() {
@@ -429,5 +462,24 @@ mod tests {
         let (_, message) = http_error_log_entry(StatusCode::BAD_REQUEST, &Method::GET, uri.path()).unwrap();
         assert_eq!(message, "HTTP 400 Bad Request - GET /api/v1/auth/oidc/callback");
         assert!(!message.contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn terminate_child_sends_sigterm_before_sigkill() {
+        use tokio::io::AsyncBufReadExt;
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("trap 'exit 0' TERM; echo ready; while :; do sleep 0.1; done")
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let mut line = String::new();
+        let mut reader = tokio::io::BufReader::new(child.stdout.take().unwrap());
+        reader.read_line(&mut line).await.unwrap();
+
+        terminate_child_gracefully("test-child", &mut child, Duration::from_secs(2)).await;
+        let status = child.try_wait().unwrap().expect("child must have exited");
+        assert!(status.success(), "expected clean exit 0 on SIGTERM, got {:?}", status);
     }
 }

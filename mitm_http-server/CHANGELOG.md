@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.1] - 2026-11-17
+
+### Fixed
+- **Graceful Child & Job Shutdown ([#89](https://github.com/Zheng-Bote/mitm_core-layer/issues/89)):** On supervisor shutdown (`SIGINT` / `SIGTERM`), `mitm-http-server` now sends `SIGTERM` to `scheduler-server` and `iam-server` and waits for them to exit cleanly (with a bounded `SIGKILL` fallback) instead of killing them immediately with `Child::kill()` (`SIGKILL`), allowing `scheduler-server` to gracefully stop all running jobs before exiting.
+
 ## [3.4.0] - 2026-11-10
 
 ### Added
