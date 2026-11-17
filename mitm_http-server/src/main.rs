@@ -72,17 +72,11 @@ async fn readiness_middleware(
 
     // Block functional routes if UDS initialization is not complete
     if state.repo.get().is_none() {
-        let err_msg = serde_json::json!({
-            "errors": [{
-                "status": "503",
-                "title": "Service Unavailable",
-                "detail": "Core components are still initializing. Please wait."
-            }]
-        });
-        return axum::response::IntoResponse::into_response((
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(err_msg),
-        ));
+        return axum::response::IntoResponse::into_response(
+            handlers::response::ApiError::service_unavailable(
+                "Core components are still initializing. Please wait.",
+            ),
+        );
     }
 
     next.run(req).await
@@ -330,6 +324,7 @@ m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.o
                                             .layer(ready_layer)
                                             .layer(error_layer)
                                             .layer(auth_layer)
+                                            .layer(middleware::from_fn(handlers::response::request_id_and_envelope_middleware))
                                             .with_state(app_state);
                                             
                                         // Start HTTP Server dynamically with true config

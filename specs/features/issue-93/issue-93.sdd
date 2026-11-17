@@ -1,0 +1,38 @@
+Spec: Feature Issue 93 - API Standardization (RMM Level 2 and Unified Response Envelope)
+
+Platform: Rust/Axum/HTTP
+
+Purpose:
+  Standardize all JSON API endpoints of `mitm_http-server` (`v3+`) on Richardson Maturity Model Level 2 and a unified JSON:API-derived response envelope (`id`, `status`, `code`, `title`, `detail`, `meta`, `data`). Issue: https://github.com/Zheng-Bote/mitm_core-layer/issues/93
+
+References:
+  ../../core-layer.sdd
+  ../architecture.sdd
+  ../../mitm_http-server/mitm_http-server.sdd
+  ../../mitm_http-server/specs/api_spec.sdd
+
+Owns:
+  ./**
+
+Can modify:
+  /mitm_http-server/docs/api/api_v1.md
+  /mitm_http-server/src/**
+  /mitm_http-server/Cargo.toml
+  /mitm_http-server/CHANGELOG.md
+
+Must:
+  All `/api/v1/*` JSON responses return a single JSON object containing `id`, `status`, `code`, `title`, `detail`, `meta`, and `data`.
+  A Request-ID middleware assigns a UUID to every request, sets the `X-Request-ID` response header, and populates `id` in the response envelope.
+  Resource endpoints use RMM Level 2 noun paths, path parameters (`PUT /api/v1/iam/users/:id/roles`, `PUT /api/v1/jobs/:name`, `PUT` and `DELETE /api/v1/config/transformations/topic-dependencies/:topic`), and semantic HTTP status codes (`200`, `201`, `202`, `400`, `401`, `403`, `404`, `409`, `422`, `429`, `500`, `503`).
+
+Must not:
+  Break binary FlatBuffers content negotiation (`Accept: application/x-flatbuffers`) on `/api/v1/logs/*` and `/api/v1/dlq` or browser OIDC redirect endpoints (`/api/v1/auth/oidc/login`, `/api/v1/auth/oidc/callback`).
+
+Tasks:
+  [x] #1 Anchor RMM Level 2 and unified JSON response envelope rules in `api_spec.sdd` and `mitm_http-server.sdd`.
+  [x] #2 Implement `RequestId` middleware, `@ApiResponse`, and `@ApiError` in `mitm_http-server`.
+  [ ] #3 Migrate `/api/v1/*` handlers and add RMM Level 2 resource routes (`PUT /api/v1/iam/users/:id/roles`, `PUT /api/v1/jobs/:name`, `PUT`/`DELETE /api/v1/config/transformations/topic-dependencies/:topic`) and Casbin policies.
+  [ ] #4 Update `docs/api/api_v1.md`, `CHANGELOG.md`, and unit tests.
+
+Done when:
+  `cargo test` and `cargo build --release` succeed across the `core-layer` workspace and all `/api/v1/*` JSON responses conform to the envelope contract.

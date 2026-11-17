@@ -15,6 +15,7 @@ pub mod logs;
 pub mod api_v1;
 pub mod dlq;
 pub mod transformation;
+pub mod response;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -167,13 +168,6 @@ pub async fn authz_middleware(
             repo.audit(&auth.username, crate::audit::action::FORBIDDEN_ACCESS, details).await;
         }
 
-        let err = ErrorResponse {
-            errors: vec![JsonApiError {
-                status: "403".into(),
-                title: "Forbidden".into(),
-                detail: Some("You do not have permission to access this resource".into()),
-            }],
-        };
-        (axum::http::StatusCode::FORBIDDEN, axum::Json(err)).into_response()
+        response::ApiError::forbidden("You do not have permission to access this resource").into_response()
     }
 }
