@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.6] - 2026-11-17
+
+### Added
+- **Startup Cleanup of Orphaned `program_runs` ([#91](https://github.com/Zheng-Bote/mitm_core-layer/issues/91)):** On startup (after passing the singleton UDS check and before starting `CronScheduler`), `mitm-scheduler-server` updates any unfinished `program_runs` entries (`exit_code IS NULL OR success IS NULL`) to `exit_code = 2`, `success = false`, and `finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)`, logging the count to `system_logs`.
+
 ## [1.3.5] - 2026-11-17
 
 ### Fixed
