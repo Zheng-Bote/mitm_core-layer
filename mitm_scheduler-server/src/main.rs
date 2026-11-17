@@ -73,183 +73,179 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orchestrator = Arc::new(JobOrchestrator::new(repo.clone(), socket_path_str));
     let cron_scheduler = CronScheduler::new(repo.clone(), orchestrator.clone());
 
-    tokio::spawn(async move {
+    let cron_handle = tokio::spawn(async move {
         cron_scheduler.start().await;
     });
 
     let master_key_str = password.clone();
     let db_config_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
 
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    
-    loop {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                let shutdown_msg = "Shutting down...";
-                log::info!("{}", shutdown_msg);
-                let _ = repo.log_system("INFO", "scheduler-server", shutdown_msg).await;
-                orchestrator.stop_all().await;
-                // Wait briefly for jobs to receive the signal
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                break;
-            }
-            _ = sigterm.recv() => {
-                let shutdown_msg = "Shutting down...";
-                log::info!("{}", shutdown_msg);
-                let _ = repo.log_system("INFO", "scheduler-server", shutdown_msg).await;
-                orchestrator.stop_all().await;
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                break;
-            }
-            accept_result = listener.accept() => {
-                match accept_result {
-                    Ok((mut stream, _)) => {
-                        let repo = repo.clone();
-                        let mk = master_key_str.clone();
-                        let kek_clone = kek.clone();
-                        let db_cfg = db_config_json.clone();
-                        let orch = orchestrator.clone();
-                        tokio::spawn(async move {
-                            let (reader, mut writer) = stream.split();
-                            let mut reader = BufReader::new(reader);
-                            let mut line = String::new();
+    let repo_for_accept = repo.clone();
+    let orch_for_accept = orchestrator.clone();
+    let accept_handle = tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((mut stream, _)) => {
+                    let repo = repo_for_accept.clone();
+                    let mk = master_key_str.clone();
+                    let kek_clone = kek.clone();
+                    let db_cfg = db_config_json.clone();
+                    let orch = orch_for_accept.clone();
+                    tokio::spawn(async move {
+                        let (reader, mut writer) = stream.split();
+                        let mut reader = BufReader::new(reader);
+                        let mut line = String::new();
 
-                            while let Ok(bytes) = reader.read_line(&mut line).await {
-                                if bytes == 0 { break; }
-                                
-                                use mitm_common::ipc::SchedulerRequest;
-                                match serde_json::from_str::<SchedulerRequest>(&line) {
-                                    Ok(SchedulerRequest::RunImmediateJob(req)) => {
-                                        log::info!("RunImmediateJob: {}", req.command);
-                                        let orch = orch.clone();
-                                        tokio::spawn(async move {
-                                            use crate::db::ScheduledProgram;
-                                            let prog = ScheduledProgram {
-                                                id: -1,
-                                                name: "Immediate_Trigger".to_string(),
-                                                command: req.command,
-                                                args: if req.args.is_empty() { None } else { serde_json::from_str(&req.args).ok() },
-                                                cron_expr: "".to_string(),
-                                                restart_on_exit: false,
-                                            };
-                                            let _ = orch.run_job(prog).await;
-                                        });
-                                    }
-                                    Ok(SchedulerRequest::Status(event)) => {
-                                        log::info!("Job Event [Run {}]: {} - {}", event.run_id, event.status, event.message);
-                                        if let Err(e) = repo.log_job_event(event.run_id, &event.status, &event.message, event.progress).await {
-                                            log::error!("Failed to log event to DB: {}", e);
-                                        }
-                                    }
-                                    Ok(SchedulerRequest::Audit(event)) => {
-                                        log::info!("AUDIT [Run {}]: {} - {}", event.run_id, event.component, event.message);
-                                        if let Err(e) = repo.log_job_audit(event.run_id, &event.component, &event.message).await {
-                                            log::error!("Failed to log audit event to DB: {}", e);
-                                        }
-                                    }
-                                    Ok(SchedulerRequest::GetCredentials(req)) => {
-                                        use mitm_common::ipc::CredentialsResponse;
-                                        use tokio::io::AsyncWriteExt;
-                                        log::info!("GetCredentials [Run {}]", req.run_id);
-                                        let resp = CredentialsResponse {
-                                            master_key: mk.clone(),
-                                            db_config_json: db_cfg.clone(),
+                        while let Ok(bytes) = reader.read_line(&mut line).await {
+                            if bytes == 0 { break; }
+                            
+                            use mitm_common::ipc::SchedulerRequest;
+                            match serde_json::from_str::<SchedulerRequest>(&line) {
+                                Ok(SchedulerRequest::RunImmediateJob(req)) => {
+                                    log::info!("RunImmediateJob: {}", req.command);
+                                    let orch = orch.clone();
+                                    tokio::spawn(async move {
+                                        use crate::db::ScheduledProgram;
+                                        let prog = ScheduledProgram {
+                                            id: -1,
+                                            name: "Immediate_Trigger".to_string(),
+                                            command: req.command,
+                                            args: if req.args.is_empty() { None } else { serde_json::from_str(&req.args).ok() },
+                                            cron_expr: "".to_string(),
+                                            restart_on_exit: false,
                                         };
-                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
-                                            let mut out = resp_json;
-                                            out.push('\n');
-                                            let _ = writer.write_all(out.as_bytes()).await;
-                                        }
+                                        let _ = orch.run_job(prog).await;
+                                    });
+                                }
+                                Ok(SchedulerRequest::Status(event)) => {
+                                    log::info!("Job Event [Run {}]: {} - {}", event.run_id, event.status, event.message);
+                                    if let Err(e) = repo.log_job_event(event.run_id, &event.status, &event.message, event.progress).await {
+                                        log::error!("Failed to log event to DB: {}", e);
                                     }
-                                    Ok(SchedulerRequest::ExecuteJob { job_name }) => {
-                                        log::info!("API requested ExecuteJob for job {}", job_name);
-                                        let orch_clone = orch.clone();
-                                        let repo_clone = repo.clone();
-                                        tokio::spawn(async move {
-                                            if let Ok(prog) = repo_clone.get_program_by_name(&job_name).await {
-                                                if let Err(e) = orch_clone.run_job(prog).await {
-                                                    let err_msg = format!("Failed to execute job {}: {}", job_name, e);
-                                                    log::error!("{}", err_msg);
-                                                    let _ = repo_clone.log_system("ERROR", "scheduler", &err_msg).await;
-                                                }
-                                            } else {
-                                                let err_msg = format!("Failed to fetch job {}", job_name);
+                                }
+                                Ok(SchedulerRequest::Audit(event)) => {
+                                    log::info!("AUDIT [Run {}]: {} - {}", event.run_id, event.component, event.message);
+                                    if let Err(e) = repo.log_job_audit(event.run_id, &event.component, &event.message).await {
+                                        log::error!("Failed to log audit event to DB: {}", e);
+                                    }
+                                }
+                                Ok(SchedulerRequest::GetCredentials(req)) => {
+                                    use mitm_common::ipc::CredentialsResponse;
+                                    use tokio::io::AsyncWriteExt;
+                                    log::info!("GetCredentials [Run {}]", req.run_id);
+                                    let resp = CredentialsResponse {
+                                        master_key: mk.clone(),
+                                        db_config_json: db_cfg.clone(),
+                                    };
+                                    if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                        let mut out = resp_json;
+                                        out.push('\n');
+                                        let _ = writer.write_all(out.as_bytes()).await;
+                                    }
+                                }
+                                Ok(SchedulerRequest::ExecuteJob { job_name }) => {
+                                    log::info!("API requested ExecuteJob for job {}", job_name);
+                                    let orch_clone = orch.clone();
+                                    let repo_clone = repo.clone();
+                                    tokio::spawn(async move {
+                                        if let Ok(prog) = repo_clone.get_program_by_name(&job_name).await {
+                                            if let Err(e) = orch_clone.run_job(prog).await {
+                                                let err_msg = format!("Failed to execute job {}: {}", job_name, e);
                                                 log::error!("{}", err_msg);
                                                 let _ = repo_clone.log_system("ERROR", "scheduler", &err_msg).await;
                                             }
-                                        });
-                                    }
-                                    Ok(SchedulerRequest::StopJob { job_name }) => {
-                                        log::info!("API requested StopJob for job {}", job_name);
-                                        let repo_c = repo.clone(); let orch_c = orch.clone(); tokio::spawn(async move { if let Ok(prog) = repo_c.get_program_by_name(&job_name).await { orch_c.stop_job(prog.id).await; } });
-                                    }
-                                    Ok(SchedulerRequest::GetInfo) => {
-                                        use mitm_common::ipc::InfoResponse;
-                                        use tokio::io::AsyncWriteExt;
-                                        let resp = InfoResponse {
-                                            name: "mitm_scheduler-server".to_string(),
-                                            version: env!("CARGO_PKG_VERSION").to_string(),
-                                        };
-                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
-                                            let mut out = resp_json;
-                                            out.push('\n');
-                                            let _ = writer.write_all(out.as_bytes()).await;
+                                        } else {
+                                            let err_msg = format!("Failed to fetch job {}", job_name);
+                                            log::error!("{}", err_msg);
+                                            let _ = repo_clone.log_system("ERROR", "scheduler", &err_msg).await;
                                         }
-                                    }
-                                    Ok(SchedulerRequest::UpdateJobs) => {
-                                        log::info!("API requested UpdateJobs, reloading scheduler config");
-                                    }
-                                    Ok(SchedulerRequest::CryptoEncrypt { wrapped_dek, plaintext }) => {
-                                        use mitm_common::ipc::IpcResponse;
-                                        use tokio::io::AsyncWriteExt;
-                                        let resp = match mitm_common::crypto::envelope_encrypt(&kek_clone, &wrapped_dek, &plaintext) {
-                                            Ok((ciphertext, nonce)) => IpcResponse::CryptoEncryptResult { nonce, ciphertext },
-                                            Err(e) => IpcResponse::Error(e.to_string()),
-                                        };
-                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
-                                            let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
-                                        }
-                                    }
-                                    Ok(SchedulerRequest::CryptoGenerateWrappedDek) => {
-                                        use mitm_common::ipc::IpcResponse;
-                                        use tokio::io::AsyncWriteExt;
-                                        let resp = match mitm_common::crypto::generate_wrapped_dek(&kek_clone) {
-                                            Ok(wrapped_dek) => IpcResponse::CryptoGenerateWrappedDekResult { wrapped_dek },
-                                            Err(e) => IpcResponse::Error(e.to_string()),
-                                        };
-                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
-                                            let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
-                                        }
-                                    }
-                                    Ok(SchedulerRequest::CryptoDecrypt { wrapped_dek, nonce, ciphertext }) => {
-                                        use mitm_common::ipc::IpcResponse;
-                                        use tokio::io::AsyncWriteExt;
-                                        let resp = match mitm_common::crypto::envelope_decrypt(&kek_clone, &wrapped_dek, &nonce, &ciphertext) {
-                                            Ok(plaintext) => IpcResponse::CryptoDecryptResult { plaintext },
-                                            Err(e) => IpcResponse::Error(e.to_string()),
-                                        };
-                                        if let Ok(resp_json) = serde_json::to_string(&resp) {
-                                            let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let err_msg = format!("Invalid SchedulerRequest JSON: {}", e);
-                                        log::error!("{}", err_msg);
-                                        let _ = repo.log_system("ERROR", "scheduler", &err_msg).await;
+                                    });
+                                }
+                                Ok(SchedulerRequest::StopJob { job_name }) => {
+                                    log::info!("API requested StopJob for job {}", job_name);
+                                    let repo_c = repo.clone(); let orch_c = orch.clone(); tokio::spawn(async move { if let Ok(prog) = repo_c.get_program_by_name(&job_name).await { orch_c.stop_job(prog.id).await; } });
+                                }
+                                Ok(SchedulerRequest::GetInfo) => {
+                                    use mitm_common::ipc::InfoResponse;
+                                    use tokio::io::AsyncWriteExt;
+                                    let resp = InfoResponse {
+                                        name: "mitm_scheduler-server".to_string(),
+                                        version: env!("CARGO_PKG_VERSION").to_string(),
+                                    };
+                                    if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                        let mut out = resp_json;
+                                        out.push('\n');
+                                        let _ = writer.write_all(out.as_bytes()).await;
                                     }
                                 }
-                                line.clear();
+                                Ok(SchedulerRequest::UpdateJobs) => {
+                                    log::info!("API requested UpdateJobs, reloading scheduler config");
+                                }
+                                Ok(SchedulerRequest::CryptoEncrypt { wrapped_dek, plaintext }) => {
+                                    use mitm_common::ipc::IpcResponse;
+                                    use tokio::io::AsyncWriteExt;
+                                    let resp = match mitm_common::crypto::envelope_encrypt(&kek_clone, &wrapped_dek, &plaintext) {
+                                        Ok((ciphertext, nonce)) => IpcResponse::CryptoEncryptResult { nonce, ciphertext },
+                                        Err(e) => IpcResponse::Error(e.to_string()),
+                                    };
+                                    if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                        let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                    }
+                                }
+                                Ok(SchedulerRequest::CryptoGenerateWrappedDek) => {
+                                    use mitm_common::ipc::IpcResponse;
+                                    use tokio::io::AsyncWriteExt;
+                                    let resp = match mitm_common::crypto::generate_wrapped_dek(&kek_clone) {
+                                        Ok(wrapped_dek) => IpcResponse::CryptoGenerateWrappedDekResult { wrapped_dek },
+                                        Err(e) => IpcResponse::Error(e.to_string()),
+                                    };
+                                    if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                        let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                    }
+                                }
+                                Ok(SchedulerRequest::CryptoDecrypt { wrapped_dek, nonce, ciphertext }) => {
+                                    use mitm_common::ipc::IpcResponse;
+                                    use tokio::io::AsyncWriteExt;
+                                    let resp = match mitm_common::crypto::envelope_decrypt(&kek_clone, &wrapped_dek, &nonce, &ciphertext) {
+                                        Ok(plaintext) => IpcResponse::CryptoDecryptResult { plaintext },
+                                        Err(e) => IpcResponse::Error(e.to_string()),
+                                    };
+                                    if let Ok(resp_json) = serde_json::to_string(&resp) {
+                                        let _ = writer.write_all(format!("{}\n", resp_json).as_bytes()).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    let err_msg = format!("Invalid SchedulerRequest JSON: {}", e);
+                                    log::error!("{}", err_msg);
+                                    let _ = repo.log_system("ERROR", "scheduler", &err_msg).await;
+                                }
                             }
-                        });
-                    }
-                    Err(e) => {
-                        let err_msg = format!("Failed to accept connection: {}", e);
-                        log::error!("{}", err_msg);
-                        let _ = repo.log_system("ERROR", "scheduler", &err_msg).await;
-                    }
+                            line.clear();
+                        }
+                    });
+                }
+                Err(e) => {
+                    let err_msg = format!("Failed to accept connection: {}", e);
+                    log::error!("{}", err_msg);
+                    let _ = repo_for_accept.log_system("ERROR", "scheduler", &err_msg).await;
                 }
             }
         }
+    });
+
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = sigterm.recv() => {}
     }
+
+    let shutdown_msg = "Shutting down...";
+    log::info!("{}", shutdown_msg);
+    let _ = repo.log_system("INFO", "scheduler-server", shutdown_msg).await;
+    cron_handle.abort();
+    // Keep UDS accept loop active while stop_all() waits for running jobs to finish and emit their final IPC events.
+    orchestrator.stop_all().await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    accept_handle.abort();
     Ok(())
 }

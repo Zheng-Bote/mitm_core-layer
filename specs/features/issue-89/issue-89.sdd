@@ -1,0 +1,50 @@
+Spec: Feature Issue 89 - Graceful Job Shutdown on HTTP Server Termination
+
+Platform: Rust/Linux
+
+Purpose:
+  Ensure that when `mitm_http-server` shuts down, it forwards `SIGTERM` to `mitm_scheduler-server` and `mitm_iam-server`, and `mitm_scheduler-server` gracefully stops and waits for all running job processes before exiting. Issue: https://github.com/Zheng-Bote/mitm_core-layer/issues/89
+
+References:
+  ../../core-layer.sdd
+  ../architecture.sdd
+  ../../mitm_http-server/mitm_http-server.sdd
+
+Owns:
+  ./**
+
+Can modify:
+  /rust-toolchain.toml
+  /mitm_http-server/src/main.rs
+  /mitm_http-server/Cargo.toml
+  /mitm_http-server/CHANGELOG.md
+  /mitm_scheduler-server/src/main.rs
+  /mitm_scheduler-server/src/job_runner.rs
+  /mitm_scheduler-server/Cargo.toml
+  /mitm_scheduler-server/CHANGELOG.md
+
+Must:
+  On shutdown (`SIGINT` or `SIGTERM`), `mitm_http-server` sends `SIGTERM` to the `mitm_scheduler-server` and `mitm_iam-server` child processes and waits up to a bounded timeout before escalating to `SIGKILL`.
+  When `mitm_scheduler-server` receives `SIGTERM` or `SIGINT`, `@JobOrchestrator.stop_all` sets the shutdown flag so no new jobs or `restart_on_exit` restarts are triggered.
+  `@JobOrchestrator.stop_all` sends `SIGTERM` to all active job PIDs, waits up to `10` seconds for `running_jobs` to drain while keeping UDS IPC handling active, and escalates to `SIGKILL` for any remaining job PIDs.
+  Every running job's final IPC `status` and `audit` events and `program_runs` row update are persisted before `mitm_scheduler-server` exits.
+
+Must not:
+  Send `SIGKILL` immediately to `mitm_scheduler-server` or `mitm_iam-server` before allowing graceful termination.
+  Restart jobs with `restart_on_exit` set to `true` after shutdown has started.
+
+Tasks:
+  [x] #1 Add `libc` dependency and `terminate_child_gracefully` (`SIGTERM` then wait with `SIGKILL` fallback) in `mitm_http-server`.
+  [x] #2 Add `shutting_down` flag, drained wait loop with `SIGKILL` escalation in `@JobOrchestrator.stop_all`, and keep UDS IPC accept loop active during shutdown in `mitm_scheduler-server`.
+  [x] #3 Add unit tests for `@JobOrchestrator.stop_all` and `terminate_child_gracefully`.
+  [x] #4 Bump versions (`mitm-http-server` to `3.4.1`, `mitm-scheduler-server` to `1.3.5`) and update `CHANGELOG.md`.
+
+Done when:
+  `cargo test` and `cargo build --release` succeed across the `core-layer` workspace.
+
+Scenario: running job during supervisor shutdown
+  Given a scheduled job process is running under `mitm_scheduler-server`
+  When `mitm_http-server` receives `SIGTERM`
+  Then `mitm_http-server` sends `SIGTERM` to `mitm_scheduler-server`
+  And `mitm_scheduler-server` sends `SIGTERM` to the running job process and waits for it to exit
+  And the job's `program_runs` entry is updated before `mitm_scheduler-server` and `mitm_http-server` exit

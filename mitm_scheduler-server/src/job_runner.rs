@@ -6,8 +6,9 @@ use tokio::process::Command;
 use std::process::Stdio;
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::os::unix::process::ExitStatusExt;
 use crate::db::{Repository, ScheduledProgram};
@@ -16,6 +17,7 @@ pub struct JobOrchestrator {
     repo: Arc<Repository>,
     running_jobs: Arc<Mutex<HashMap<i32, u32>>>,
     socket_path: String,
+    shutting_down: Arc<AtomicBool>,
 }
 
 impl JobOrchestrator {
@@ -24,6 +26,7 @@ impl JobOrchestrator {
             repo,
             running_jobs: Arc::new(Mutex::new(HashMap::new())),
             socket_path,
+            shutting_down: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -59,20 +62,15 @@ impl JobOrchestrator {
     }
 
     pub async fn stop_all(&self) {
-        let running: Vec<(i32, u32)> = {
-            let lock = self.running_jobs.lock().await;
-            lock.iter().map(|(&id, &pid)| (id, pid)).collect()
-        };
-
-        for (program_id, pid) in running {
-            if pid > 0 {
-                log::info!("Graceful shutdown: Sending SIGTERM to job {} (PID: {})", program_id, pid);
-                unsafe { libc::kill(pid as i32, libc::SIGTERM); }
-            }
-        }
+        self.shutting_down.store(true, Ordering::SeqCst);
+        stop_running_jobs(&self.running_jobs, tokio::time::Duration::from_secs(10)).await;
     }
 
     pub async fn run_job(&self, program: ScheduledProgram) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            log::info!("Scheduler is shutting down, skipping execution of job {}", program.name);
+            return Ok(());
+        }
         let mut running = self.running_jobs.lock().await;
         if running.contains_key(&program.id) {
             let msg = format!("Job {} is already running, skipping execution", program.name);
@@ -87,9 +85,14 @@ impl JobOrchestrator {
         let repo = self.repo.clone();
         let running_jobs = self.running_jobs.clone();
         let socket_path = self.socket_path.clone();
+        let shutting_down = self.shutting_down.clone();
 
         tokio::spawn(async move {
             loop {
+                if shutting_down.load(Ordering::SeqCst) {
+                    running_jobs.lock().await.remove(&program.id);
+                    return;
+                }
                 let run_id = match repo.create_program_run(program.id).await {
                     Ok(id) => id,
                     Err(e) => {
@@ -140,6 +143,9 @@ impl JobOrchestrator {
 
                 let pid = child.id().unwrap_or(0);
                 running_jobs.lock().await.insert(program.id, pid);
+                if shutting_down.load(Ordering::SeqCst) && pid > 0 {
+                    unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+                }
                 let _ = repo.update_run_pid(run_id, pid).await;
                 let _ = repo.log_system("DEBUG", "Scheduler", &format!("Job {} started (RunID {}, PID {})", program.name, run_id, pid)).await;
                 
@@ -169,7 +175,7 @@ impl JobOrchestrator {
 
                 let _ = repo.update_program_run(run_id, exit_code, success, pid).await;
 
-                if program.restart_on_exit && !success && !was_killed {
+                if program.restart_on_exit && !success && !was_killed && !shutting_down.load(Ordering::SeqCst) {
                     log::info!("Restarting job {} due to failure (restart_on_exit=true)", program.name);
                     // Do not remove from running_jobs, just loop again
                 } else {
@@ -180,5 +186,86 @@ impl JobOrchestrator {
         });
 
         Ok(())
+    }
+}
+
+async fn stop_running_jobs(
+    running_jobs: &Arc<Mutex<HashMap<i32, u32>>>,
+    grace_timeout: tokio::time::Duration,
+) {
+    let mut signaled_pids: HashSet<u32> = HashSet::new();
+    let deadline = tokio::time::Instant::now() + grace_timeout;
+
+    loop {
+        let running: Vec<(i32, u32)> = {
+            let lock = running_jobs.lock().await;
+            lock.iter().map(|(&id, &pid)| (id, pid)).collect()
+        };
+
+        if running.is_empty() {
+            log::info!("All running jobs have terminated gracefully.");
+            return;
+        }
+
+        for (program_id, pid) in &running {
+            if *pid > 0 && signaled_pids.insert(*pid) {
+                log::info!("Graceful shutdown: Sending SIGTERM to job {} (PID: {})", program_id, pid);
+                unsafe { libc::kill(*pid as i32, libc::SIGTERM); }
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            for (program_id, pid) in running {
+                if pid > 0 {
+                    log::warn!(
+                        "Job {} (PID: {}) did not exit within {:?} during shutdown, sending SIGKILL",
+                        program_id,
+                        pid,
+                        grace_timeout
+                    );
+                    unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                }
+            }
+            break;
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+
+    let kill_deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+    while tokio::time::Instant::now() < kill_deadline {
+        if running_jobs.lock().await.is_empty() {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stop_running_jobs;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tokio::time::Duration;
+
+    #[tokio::test]
+    async fn stop_running_jobs_terminates_and_waits_for_drain() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("trap 'exit 0' TERM; while :; do sleep 0.1; done")
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+
+        let running_jobs = Arc::new(Mutex::new(HashMap::from([(42, pid)])));
+        let running_jobs_reaper = running_jobs.clone();
+        tokio::spawn(async move {
+            let _ = child.wait().await;
+            running_jobs_reaper.lock().await.remove(&42);
+        });
+
+        stop_running_jobs(&running_jobs, Duration::from_secs(2)).await;
+        assert!(running_jobs.lock().await.is_empty(), "running_jobs must be drained after stop_running_jobs");
     }
 }

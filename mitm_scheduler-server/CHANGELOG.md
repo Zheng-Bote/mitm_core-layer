@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-11-17
+
+### Fixed
+- **Graceful Job Termination on Shutdown ([#89](https://github.com/Zheng-Bote/mitm_core-layer/issues/89)):** `JobOrchestrator::stop_all()` now sets a `shutting_down` flag (preventing new cron jobs and `restart_on_exit` restarts during shutdown), sends `SIGTERM` to all active job PIDs, waits up to 10s for `running_jobs` to drain while keeping the UDS IPC accept loop active (so final `cancelled` status/audit events and `program_runs` updates are persisted), and escalates to `SIGKILL` for any remaining job PIDs.
+
 ## [1.3.4] - 2026-11-10
 
 ### Fixed
