@@ -1,0 +1,64 @@
+Spec: Feature Issue 99 - Complete, Encrypted Configuration Backup and Working Restore
+
+Platform: Rust/Linux, PostgreSQL
+
+Purpose:
+  Make the configuration backup complete (keys, users, RBAC) and encrypted with an admin passphrase, and make the restore work: foreign-key order, no loss of job history, sequences, format versioning and lock-out protection. Issue: https://github.com/Zheng-Bote/mitm_core-layer/issues/99 (frontend: https://github.com/Zheng-Bote/mitm_fe_cpp/issues/49)
+
+References:
+  ../../../core-layer.sdd
+  ../../../mitm_http-server/mitm_http-server.sdd
+
+Owns:
+  ./**
+
+Can modify:
+  /mitm_http-server/src/handlers/admin.rs
+  /mitm_http-server/src/handlers/backup.rs
+  /mitm_http-server/src/handlers/mod.rs
+  /mitm_http-server/src/handlers/api_v1/system.rs
+  /mitm_http-server/src/handlers/jobs.rs
+  /mitm_http-server/src/main.rs
+  /mitm_http-server/Cargo.toml
+  /mitm_http-server/CHANGELOG.md
+  /mitm_http-server/README.md
+  /mitm_http-server/docs/api/api_v1.md
+
+Must:
+  `POST /api/v1/system/backup` with `{passphrase}` returns a backup document `{format: 1, server_version, created_at, kdf: {algorithm: "argon2id", version: 19, m_cost_kib, t_cost, p_cost, salt}, cipher: {algorithm: "AES-256-GCM", nonce}, ciphertext}`; the header is authenticated as AES-GCM associated data.
+  The encrypted content contains the tables `storage_keys`, `scheduler_config`, `roles`, `casbin_rule`, `admin_users`, `user_roles_encrypted`, `webauthn_credentials`, `scheduled_programs`, `source_credentials`, `delivery_targets`, `mapping_source`, `mapping_target_field`, `mapping_rule`, `mapping_transformation`, `mapping_validation`, `topic_dependencies`.
+  The key is derived with Argon2id (64 MiB, t = 3, p = 1, 16-byte salt) from a passphrase of at least 12 characters; the passphrase is never logged or stored and is zeroized after use.
+  `POST /api/v1/system/restore` with `{passphrase, backup}` accepts every backup with a supported `format`; unencrypted backups of older servers are rejected with `BACKUP_FORMAT_UNSUPPORTED`, a wrong passphrase or modified document with `BACKUP_DECRYPTION_FAILED`.
+  Before changing data, the restore rejects (`RESTORE_LOCKOUT`) a backup in which the current user is missing or inactive, or whose roles and `casbin_rule` policies would not allow `POST /api/v1/system/restore`; a user without role assignment counts as `ADMIN` (same fallback as the session check).
+  The restore runs in one transaction: `storage_keys` are inserted when missing and never deleted; replaced tables are cleared children-first and inserted parents-first; `scheduled_programs` are upserted by `id` and programs missing in the backup are deactivated (`enabled = false`); `program_runs`, `job_status_events` and `job_audit_logs` are never deleted; every `nextval` sequence of a restored table is moved forward to at least the maximum ID (never backwards, because `setval` is not transactional).
+  Any failure rolls back the restore and names the failing table.
+  After a successful restore, the Casbin policies are reloaded and the scheduler is asked to reload its jobs (`UpdateJobs`).
+  The audit entries `BACKUP_CONFIG` and `RESTORE_CONFIG` contain the format version and the row count per table.
+
+Must not:
+  Decrypt encrypted columns (`config_payload`, wrapped keys, encrypted roles) except the current user's role assignment for the lock-out check.
+  Write the passphrase or backup contents to logs.
+
+Tasks:
+  [x] #1 Backup document crypto (Argon2id + AES-256-GCM with header as associated data) with unit tests.
+  [x] #2 Export and restore of the table set with FK order, upsert/deactivate, insert-only keys and sequence reset.
+  [x] #3 Lock-out check with an in-memory Casbin enforcer built from the backup.
+  [x] #4 Handlers, routes (`POST /backup`), Casbin reload, scheduler reload, audit details.
+  [x] #5 Integration tests against PostgreSQL in an isolated schema (backup → restore on the same data, restore into empty tables, deactivation, sequences).
+  [x] #6 API docs, README, CHANGELOG, version `3.6.0`.
+
+Done when:
+  `cargo test --workspace` (including the integration tests with `MITM_TEST_DATABASE_URL`) and `cargo build --release` succeed.
+
+Scenario: restore keeps the job history
+  Given a backup of the current configuration
+  And `program_runs` and `job_audit_logs` exist for its programs
+  When the backup is restored
+  Then the runs and job audit logs still exist
+  And programs created after the backup are deactivated
+
+Scenario: wrong passphrase
+  Given an encrypted backup
+  When it is restored with a different passphrase
+  Then the response is `422 BACKUP_DECRYPTION_FAILED`
+  And no table is changed

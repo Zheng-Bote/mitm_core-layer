@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-11-18
+
+Complete, encrypted configuration backup and a working restore ([#99](https://github.com/Zheng-Bote/mitm_core-layer/issues/99)). **Breaking** for backup clients (frontend: [mitm_fe_cpp#49](https://github.com/Zheng-Bote/mitm_fe_cpp/issues/49)).
+
+### Fixed
+- **Restore failed with mapping rules**: tables were cleared and inserted one by one, so `DELETE FROM mapping_source` violated the foreign key of `mapping_rule`. Replaced tables are now cleared children-first and inserted parents-first in one transaction.
+- **Restore deleted the job history**: `DELETE FROM scheduled_programs` cascaded to `program_runs`, `job_status_events` and `job_audit_logs`. Programs are now upserted by `id`; programs missing in the backup are deactivated, the history is kept.
+- **Restore into another database**: `storage_keys` (DEKs of `source_credentials` / `delivery_targets`) were missing; they are now part of the backup and only ever added on restore. Sequences are moved forward to the restored IDs.
+- **Version lock**: backups are versioned by `format` instead of the exact server version.
+
+### Added
+- **Backup content**: also `storage_keys`, `scheduler_config`, `roles`, `casbin_rule`, `admin_users`, `user_roles_encrypted`, `webauthn_credentials`.
+- **Encryption**: the whole backup is encrypted with AES-256-GCM using an Argon2id key derived from an admin passphrase (min. 12 characters); the header is authenticated.
+- **Lock-out protection**: a restore that would remove the current user's restore access is rejected (`409 RESTORE_LOCKOUT`), evaluated with the backup's roles and Casbin policies.
+- After a restore the RBAC policies are reloaded and the scheduler reloads its jobs; audit entries contain format and row counts.
+
+### Changed
+- `GET /api/v1/system/backup` → `POST /api/v1/system/backup` with `{passphrase}`; `POST /api/v1/system/restore` takes `{passphrase, backup}`. Unencrypted backups of older versions are rejected (`BACKUP_FORMAT_UNSUPPORTED`).
+
 ## [3.5.0] - 2026-11-17
 
 API standardization: RMM Level 2 and a unified response envelope ([#93](https://github.com/Zheng-Bote/mitm_core-layer/issues/93)). **Breaking** for API clients.
