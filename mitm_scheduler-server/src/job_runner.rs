@@ -141,6 +141,15 @@ impl JobOrchestrator {
                     }
                 };
 
+                // Read the pipes until EOF; an unread pipe blocks the job after 64 KiB of output (#96).
+                // Not awaited: a descendant keeping a pipe open must not delay the run's completion.
+                if let Some(out) = child.stdout.take() {
+                    tokio::spawn(drain_job_output(out, program.name.clone(), run_id, "stdout"));
+                }
+                if let Some(err) = child.stderr.take() {
+                    tokio::spawn(drain_job_output(err, program.name.clone(), run_id, "stderr"));
+                }
+
                 let pid = child.id().unwrap_or(0);
                 running_jobs.lock().await.insert(program.id, pid);
                 if shutting_down.load(Ordering::SeqCst) && pid > 0 {
@@ -186,6 +195,34 @@ impl JobOrchestrator {
         });
 
         Ok(())
+    }
+}
+
+/// Maximum number of bytes of a single job output line written to the scheduler log.
+const MAX_JOB_OUTPUT_LINE: usize = 4096;
+
+/// Reads a job's stdout or stderr until EOF and writes each line to the scheduler log at DEBUG level.
+async fn drain_job_output<R>(reader: R, job_name: String, run_id: i32, stream: &'static str)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt;
+    let mut reader = tokio::io::BufReader::new(reader);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf).await {
+            Ok(0) => break,
+            Ok(_) => {
+                let line = &buf[..buf.len().min(MAX_JOB_OUTPUT_LINE)];
+                let line = String::from_utf8_lossy(line);
+                log::debug!("[job {} run {} {}] {}", job_name, run_id, stream, line.trim_end());
+            }
+            Err(e) => {
+                log::warn!("Reading {} of job {} (RunID: {}) failed: {}", stream, job_name, run_id, e);
+                break;
+            }
+        }
     }
 }
 
@@ -243,7 +280,8 @@ async fn stop_running_jobs(
 
 #[cfg(test)]
 mod tests {
-    use super::stop_running_jobs;
+    use super::{drain_job_output, stop_running_jobs};
+    use std::process::Stdio;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -267,5 +305,38 @@ mod tests {
 
         stop_running_jobs(&running_jobs, Duration::from_secs(2)).await;
         assert!(running_jobs.lock().await.is_empty(), "running_jobs must be drained after stop_running_jobs");
+    }
+
+    /// Spawns a child that writes 200 KiB to stdout and stderr (more than a 64 KiB pipe buffer).
+    fn spawn_chatty_child() -> tokio::process::Child {
+        tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("i=0; while [ $i -lt 2000 ]; do echo \"line $i $(printf '%090d' 0)\"; echo \"err $i $(printf '%090d' 0)\" >&2; i=$((i+1)); done; exit 3")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn drained_job_with_large_output_runs_to_completion() {
+        let mut child = spawn_chatty_child();
+        tokio::spawn(drain_job_output(child.stdout.take().unwrap(), "chatty".to_string(), 1, "stdout"));
+        tokio::spawn(drain_job_output(child.stderr.take().unwrap(), "chatty".to_string(), 1, "stderr"));
+
+        let status = tokio::time::timeout(Duration::from_secs(10), child.wait())
+            .await
+            .expect("job must not block on its output pipes")
+            .unwrap();
+        assert_eq!(status.code(), Some(3), "exit code must be preserved");
+    }
+
+    #[tokio::test]
+    async fn undrained_job_with_large_output_blocks() {
+        // Documents the bug of #96: without draining, the child blocks once the pipe buffer is full.
+        let mut child = spawn_chatty_child();
+        let result = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+        assert!(result.is_err(), "undrained child unexpectedly finished");
+        child.kill().await.unwrap();
     }
 }
