@@ -23,6 +23,7 @@ Can modify:
   /mitm_http-server/CHANGELOG.md
   /mitm_http-server/README.md
   /mitm_http-server/docs/api/api_v1.md
+  /mitm_http-server/docs/backup_restore.md
 
 Must:
   `POST /api/v1/system/backup` with `{passphrase}` returns a backup document `{format: 1, server_version, created_at, kdf: {algorithm: "argon2id", version: 19, m_cost_kib, t_cost, p_cost, salt}, cipher: {algorithm: "AES-256-GCM", nonce}, ciphertext}`; the header is authenticated as AES-GCM associated data.
