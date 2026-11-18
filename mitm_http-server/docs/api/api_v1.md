@@ -84,6 +84,8 @@ System operations, health, and backups.
 
 #### Configuration backup and restore
 
+Operator guide: [Configuration Backup & Restore](../backup_restore.md).
+
 `POST /api/v1/system/backup` with `{"passphrase": "…"}` (at least 12 characters) returns the encrypted backup document as `data`. Clients store `data` unchanged as the backup file:
 
 ```json

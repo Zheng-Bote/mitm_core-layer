@@ -99,7 +99,7 @@ cargo run -p mitm-http-server
 
 ## Configuration Backup & Restore
 
-`POST /api/v1/system/backup` returns the configuration (jobs, credentials, delivery targets, mappings, storage keys, users with roles and WebAuthn keys, RBAC policies, scheduler config) encrypted with AES-256-GCM; the key is derived with Argon2id from an admin passphrase (min. 12 characters). `POST /api/v1/system/restore` restores it in one transaction, keeps the job history, deactivates jobs missing in the backup and rejects restores that would lock out the current user. Restoring into another database needs the passphrase and the same `MASTER_KEY`. Details: [API v1 – Configuration backup and restore](docs/api/api_v1.md#configuration-backup-and-restore).
+`POST /api/v1/system/backup` returns the configuration (jobs, credentials, delivery targets, mappings, storage keys, users with roles and WebAuthn keys, RBAC policies, scheduler config) encrypted with AES-256-GCM; the key is derived with Argon2id from an admin passphrase (min. 12 characters). `POST /api/v1/system/restore` restores it in one transaction, keeps the job history, deactivates jobs missing in the backup and rejects restores that would lock out the current user. Restoring into another database needs the passphrase and the same `MASTER_KEY`. Guide: [Configuration Backup & Restore](docs/backup_restore.md) · API: [API v1 – Configuration backup and restore](docs/api/api_v1.md#configuration-backup-and-restore).
 
 ## Tests
 
