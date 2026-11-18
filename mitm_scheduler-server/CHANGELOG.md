@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.7] - 2026-11-18
+
+### Fixed
+- **Jobs Blocking on Unread Output ([#96](https://github.com/Zheng-Bote/mitm_core-layer/issues/96)):** Jobs were started with piped `stdout`/`stderr` that were never read, so a job blocked forever once it had written 64 KiB (e.g. `mitm_delivery_cority` hanging after its last successful delivery, ignoring `max_runtime_minutes`). The scheduler now reads both pipes until EOF and writes each line to its own log at level `DEBUG` (`[job <name> run <id> stdout|stderr] <line>`, max. 4096 bytes per line). The `program_runs` update does not wait for the readers.
+
 ## [1.3.6] - 2026-11-17
 
 ### Added

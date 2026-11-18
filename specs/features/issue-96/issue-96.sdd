@@ -1,0 +1,42 @@
+Spec: Feature Issue 96 - Drain Job stdout/stderr in the Scheduler
+
+Platform: Rust/Linux
+
+Purpose:
+  Prevent jobs from blocking forever after 64 KiB of output. `mitm_scheduler-server` spawns every job with piped `stdout` and `stderr` but never read them, so a job's write blocked as soon as the pipe buffer was full (observed with `mitm_delivery_cority`: hang after the last successful delivery, `max_runtime_minutes` without effect, a restart "fixes" it). Issue: https://github.com/Zheng-Bote/mitm_core-layer/issues/96
+
+References:
+  ../../../core-layer.sdd
+  ../issue-89/issue-89.sdd
+
+Owns:
+  ./**
+
+Can modify:
+  /mitm_scheduler-server/src/job_runner.rs
+  /mitm_scheduler-server/Cargo.toml
+  /mitm_scheduler-server/CHANGELOG.md
+
+Must:
+  When `@JobOrchestrator.run_job` spawns a job, it reads the job's `stdout` and `stderr` continuously until EOF in separate tasks, independent of `child.wait()`.
+  Each line read is written to the scheduler log at level `DEBUG`, prefixed with job name, run ID and stream name (`stdout`/`stderr`), truncated to at most 4096 bytes, invalid UTF-8 replaced lossily.
+  The run's `program_runs` update does not wait for the output readers (a descendant process keeping a pipe open must not delay it).
+
+Must not:
+  Write job output to `system_logs` or any other database table.
+  Change the IPC protocol or the job components.
+
+Tasks:
+  [x] #1 Add `drain_job_output` and spawn it for `stdout` and `stderr` after `cmd.spawn()` in `job_runner.rs`.
+  [x] #2 Add a unit test: a child writing more than 64 KiB to both streams exits within a few seconds when drained.
+  [x] #3 Bump `mitm-scheduler-server` to `1.3.7` and update `CHANGELOG.md`.
+
+Done when:
+  `cargo test` and `cargo build --release` succeed across the `core-layer` workspace.
+
+Scenario: job with more than 64 KiB of log output
+  Given a job that writes 200 KiB to `stderr` and 200 KiB to `stdout`
+  When `mitm_scheduler-server` runs the job
+  Then the job runs to completion
+  And its exit code is recorded in `program_runs`
+  And its output lines appear in the scheduler log at level `DEBUG`
