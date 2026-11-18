@@ -38,8 +38,8 @@ Every JSON response under `/api/v1/*` – success and error – is one object wi
 | `401` | `AUTH_REQUIRED` | Missing, invalid or expired session |
 | `403` | `RBAC_FORBIDDEN` / `USER_INACTIVE` | Denied by RBAC / account inactive |
 | `404` | `NOT_FOUND` | Unknown resource |
-| `409` | `CONFLICT` | Resource already exists |
-| `422` | `VALIDATION_FAILED` | Well-formed request with invalid content (wrong field type, invalid username, cron expression, base64, backup version) |
+| `409` | `CONFLICT` / `RESTORE_LOCKOUT` | Resource already exists / restore would lock out the current user |
+| `422` | `VALIDATION_FAILED` / `BACKUP_FORMAT_UNSUPPORTED` / `BACKUP_DECRYPTION_FAILED` | Well-formed request with invalid content (wrong field type, invalid username, cron expression, base64, passphrase too short) / unsupported or unencrypted backup / wrong passphrase or modified backup |
 | `429` | `RATE_LIMITED` | Rate limit exceeded |
 | `500` | `INTERNAL_ERROR` | Server error |
 | `503` | `SERVICE_UNAVAILABLE` | Core components still initializing |
@@ -76,11 +76,39 @@ System operations, health, and backups.
 | `/api/v1/system/info` | GET | None |
 | `/api/v1/system/time` | GET | None |
 | `/api/v1/system/dashboard` | GET | VIEWER |
-| `/api/v1/system/backup` | GET | ADMIN |
+| `/api/v1/system/backup` | POST | ADMIN |
 | `/api/v1/system/restore` | POST | ADMIN |
 | `/api/v1/system/key-rotation` | POST | ADMIN |
 | `/api/v1/system/storage-keys` | GET | ADMIN |
 | `/api/v1/system/action` | POST | authenticated (any role) |
+
+#### Configuration backup and restore
+
+`POST /api/v1/system/backup` with `{"passphrase": "…"}` (at least 12 characters) returns the encrypted backup document as `data`. Clients store `data` unchanged as the backup file:
+
+```json
+{
+  "format": 1,
+  "server_version": "3.6.0",
+  "created_at": "2026-11-18T12:00:00+00:00",
+  "kdf": { "algorithm": "argon2id", "version": 19, "m_cost_kib": 65536, "t_cost": 3, "p_cost": 1, "salt": "<base64>" },
+  "cipher": { "algorithm": "AES-256-GCM", "nonce": "<base64>" },
+  "ciphertext": "<base64>"
+}
+```
+
+- The key is derived from the passphrase with Argon2id; all header fields are authenticated as AES-GCM associated data. The passphrase is never stored or logged.
+- Contained tables: `storage_keys`, `scheduler_config`, `roles`, `casbin_rule`, `admin_users`, `user_roles_encrypted`, `webauthn_credentials`, `scheduled_programs`, `source_credentials`, `delivery_targets`, `mapping_source`, `mapping_target_field`, `mapping_rule`, `mapping_transformation`, `mapping_validation`, `topic_dependencies`. Encrypted columns stay encrypted; restoring into another database needs the passphrase **and the same `MASTER_KEY`**. WebAuthn keys only work in an environment with the same RP ID.
+- No transport encryption is enforced by the server; Int and Prod provide HTTPS. On plain-HTTP environments (Dev) use test passphrases only.
+
+`POST /api/v1/system/restore` with `{"passphrase": "…", "backup": <backup document>}` (body limit 64 MiB):
+
+- `422 BACKUP_FORMAT_UNSUPPORTED`: unknown `format` or an unencrypted backup of a server < 3.6.0.
+- `422 BACKUP_DECRYPTION_FAILED`: wrong passphrase or modified document.
+- `409 RESTORE_LOCKOUT`: the current user is missing or inactive in the backup, or the backup's roles and `casbin_rule` policies would not allow `POST /api/v1/system/restore` (a user without role assignment counts as `ADMIN`).
+- `503 SERVICE_UNAVAILABLE`: the user's role assignment cannot be decrypted (scheduler crypto unavailable).
+- The restore runs in one transaction: `storage_keys` are only added (never deleted); replaced tables are cleared children-first and inserted parents-first; `scheduled_programs` are upserted by `id`, programs missing in the backup are **deactivated**; `program_runs`, `job_status_events` and `job_audit_logs` are kept; sequences are moved forward to the restored IDs. On error nothing is changed and the error names the failing table.
+- Afterwards the RBAC policies are reloaded and the scheduler reloads its jobs. Response `data`: `{"tables": {"<table>": <rows>}, "deactivated_programs": [..], "scheduler_reloaded": true}`.
 
 `POST /api/v1/system/action` with `{"action": "frontend_startup", "details": {...}}` lets a client report an action to `admin_audit_logs`. It is stored as `CLIENT_<ACTION>` (here `CLIENT_FRONTEND_STARTUP`), see [Admin Audit Log](#admin-audit-log).
 
@@ -265,7 +293,7 @@ The http-server writes the following actions to `admin_audit_logs` (`username`, 
 | `BOOTSTRAP_ADMIN_REGISTERED` | Bootstrap administrator created (`username` = `system`) | `username` |
 | `FORBIDDEN_ACCESS` | Request denied by RBAC | path, method, roles |
 | `ASSIGN_ROLES` | Roles of a user replaced | `user_id`, `roles` |
-| `BACKUP_CONFIG` / `RESTORE_CONFIG` | Configuration backup / restore | – |
+| `BACKUP_CONFIG` / `RESTORE_CONFIG` | Configuration backup / restore | `format`, `tables` (row count per table); restore also `deactivated_programs`, `scheduler_reloaded` |
 | `KEY_ROTATION_SUCCESS` | Storage key rotation | `deactivated_count` |
 | `UPSERT_CREDENTIAL` / `DELETE_CREDENTIAL` | Source credentials created, updated / deleted | `id`, `source_name`, `connector_type`, `topic`, `is_active`, `operation` (`create`, `update`) / `id` |
 | `UPSERT_TARGET_CREDENTIAL` / `DELETE_TARGET_CREDENTIAL` | Delivery target created, updated / deleted | `id`, `topic`, `adapter_type`, `endpoint_url` (without user info, query, fragment), `is_active`, `operation` / `id` |

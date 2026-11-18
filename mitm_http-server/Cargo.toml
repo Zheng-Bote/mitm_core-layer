@@ -1,6 +1,6 @@
 [package]
 name = "mitm-http-server"
-version = "3.5.0"
+version = "3.6.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "MitM HTTP server (Start-Programm) - core layer"
@@ -32,6 +32,8 @@ sqlx-adapter = { version = "=1.2.0", default-features = false, features = ["post
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
 openssl = { version = "0.10", features = ["vendored"] }
 zeroize = "1.8"
+aes-gcm = "0.10.3"
+argon2 = "0.5.3"
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }

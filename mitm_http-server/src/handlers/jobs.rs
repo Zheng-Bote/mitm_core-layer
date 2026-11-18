@@ -100,7 +100,7 @@ pub async fn handle_get_jobs(State(state): State<AppState>) -> Response {
     }
 }
 
-async fn send_scheduler_ipc(req: SchedulerRequest, socket_dir: &str) -> Result<(), String> {
+pub(crate) async fn send_scheduler_ipc(req: SchedulerRequest, socket_dir: &str) -> Result<(), String> {
     let socket_path = std::path::Path::new(socket_dir).join("mitm_scheduler.sock");
     let mut stream = UnixStream::connect(socket_path).await.map_err(|e| e.to_string())?;
     let mut out = serde_json::to_string(&req).map_err(|e| e.to_string())?;

@@ -12,8 +12,12 @@ pub fn routes() -> Router<AppState> {
 pub fn protected_routes() -> Router<AppState> {
     Router::new()
         .route("/dashboard", get(handle_dashboard_stats))
-        .route("/backup", get(crate::handlers::admin::handle_backup))
-        .route("/restore", axum::routing::post(crate::handlers::admin::handle_restore))
+        .route("/backup", axum::routing::post(crate::handlers::admin::handle_backup))
+        .route(
+            "/restore",
+            axum::routing::post(crate::handlers::admin::handle_restore)
+                .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
         .route("/key-rotation", axum::routing::post(crate::handlers::admin::handle_key_rotation))
         .route("/storage-keys", get(crate::handlers::admin::handle_get_storage_keys))
         .route("/action", axum::routing::post(handle_action))

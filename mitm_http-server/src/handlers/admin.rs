@@ -8,8 +8,7 @@ use axum::{
     Json,
 };
 use base64::Engine;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::Deserialize;
 
 use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 
@@ -19,116 +18,182 @@ use crate::handlers::{AppState, response::{ApiError, ApiResponse}};
 
 
 
-#[derive(Serialize, Deserialize)]
-pub struct BackupPayload {
-    pub version: String,
-    pub data: HashMap<String, Vec<serde_json::Value>>,
+#[derive(Deserialize)]
+pub struct BackupRequest {
+    pub passphrase: String,
 }
 
-pub async fn handle_backup(State(state): State<AppState>, axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>) -> impl IntoResponse {
-    let tables = vec![
-        "scheduled_programs",
-        "source_credentials",
-        "delivery_targets",
-        "mapping_transformation",
-        "mapping_rule",
-        "mapping_validation",
-        "mapping_source",
-        "mapping_target_field",
-        "topic_dependencies",
-    ];
+#[derive(Deserialize)]
+pub struct RestoreRequest {
+    pub passphrase: String,
+    pub backup: serde_json::Value,
+}
 
-    let mut data = HashMap::new();
-
-    for table in tables.iter() {
-        let query_str = format!("SELECT row_to_json(t) FROM {} t", table);
-        let rows = match sqlx::query(&query_str).fetch_all(&state.repo.get().unwrap().pool).await {
-            Ok(r) => r,
-            Err(e) => {
-                return ApiError::internal_logged(&format!("Failed to export table {}", table), e).into_response();
-            }
-        };
-
-        let mut table_data = Vec::new();
-        for row in rows {
-            use sqlx::Row;
-            if let Ok(json_val) = row.try_get::<serde_json::Value, _>(0) {
-                table_data.push(json_val);
-            }
+fn backup_error(err: crate::handlers::backup::BackupError) -> ApiError {
+    use crate::handlers::backup::{BackupError, MIN_PASSPHRASE_CHARS};
+    use axum::http::StatusCode;
+    match err {
+        BackupError::PassphraseTooShort => {
+            ApiError::validation_failed(format!("The passphrase must have at least {} characters.", MIN_PASSPHRASE_CHARS))
         }
-        data.insert(table.to_string(), table_data);
+        BackupError::UnsupportedFormat(detail) => {
+            ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "BACKUP_FORMAT_UNSUPPORTED", "Unprocessable Entity", detail)
+        }
+        BackupError::DecryptionFailed => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "BACKUP_DECRYPTION_FAILED",
+            "Unprocessable Entity",
+            "Wrong passphrase or modified backup file.",
+        ),
+        BackupError::Internal(e) => ApiError::internal_logged("Backup encryption failed", e),
+    }
+}
+
+/// `POST /api/v1/system/backup`: exports the configuration encrypted with the given passphrase (#99).
+pub async fn handle_backup(
+    State(state): State<AppState>,
+    axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
+    Json(req): Json<BackupRequest>,
+) -> impl IntoResponse {
+    use crate::handlers::backup;
+    let passphrase = zeroize::Zeroizing::new(req.passphrase);
+    if let Err(e) = backup::check_passphrase(&passphrase) {
+        return backup_error(e).into_response();
     }
 
-    state.repo.get().unwrap().audit(&auth.username, crate::audit::action::BACKUP_CONFIG, serde_json::json!({})).await;
+    let repo = state.repo.get().unwrap();
+    // One consistent snapshot of all tables.
+    let mut tx = match repo.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => return ApiError::internal_logged("Database Error", e).into_response(),
+    };
+    if let Err(e) = sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY").execute(&mut *tx).await {
+        return ApiError::internal_logged("Database Error", e).into_response();
+    }
+    let tables = match backup::export_tables(&mut tx).await {
+        Ok(t) => t,
+        Err(e) => return ApiError::internal_logged(&format!("Failed to export table {}", e.table), e.error).into_response(),
+    };
+    let _ = tx.rollback().await;
 
-    let payload = BackupPayload {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        data,
+    let counts = backup::row_counts(&tables);
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let document = match tokio::task::spawn_blocking(move || {
+        backup::encrypt(&tables, &passphrase, env!("CARGO_PKG_VERSION"), &created_at)
+    })
+    .await
+    {
+        Ok(Ok(doc)) => doc,
+        Ok(Err(e)) => return backup_error(e).into_response(),
+        Err(e) => return ApiError::internal_logged("Backup encryption failed", e).into_response(),
     };
 
-    ApiResponse::ok(payload).into_response()
+    repo.audit(
+        &auth.username,
+        crate::audit::action::BACKUP_CONFIG,
+        serde_json::json!({ "format": backup::FORMAT, "tables": counts }),
+    )
+    .await;
+
+    ApiResponse::ok(document).into_response()
 }
 
+/// `POST /api/v1/system/restore`: decrypts a backup and restores it in one transaction (#99).
 pub async fn handle_restore(
     State(state): State<AppState>,
     axum::extract::Extension(auth): axum::extract::Extension<mitm_common::ipc::AuthResponse>,
-    Json(payload): Json<BackupPayload>,
+    Json(req): Json<RestoreRequest>,
 ) -> impl IntoResponse {
-    if payload.version != env!("CARGO_PKG_VERSION") {
-        return ApiError::validation_failed(format!(
-            "Version mismatch: cannot restore backup from version {}",
-            payload.version
-        ))
-        .into_response();
-    }
+    use crate::handlers::backup::{self, UserAssignment};
+    use axum::http::StatusCode;
+    let passphrase = zeroize::Zeroizing::new(req.passphrase);
+    let document = req.backup;
 
-    let tables = vec![
-        "scheduled_programs",
-        "source_credentials",
-        "delivery_targets",
-        "mapping_transformation",
-        "mapping_rule",
-        "mapping_validation",
-        "mapping_source",
-        "mapping_target_field",
-        "topic_dependencies",
-    ];
-
-    let mut tx = match state.repo.get().unwrap().pool.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            return ApiError::internal_logged("Database Error", e).into_response();
-        }
+    let tables = match tokio::task::spawn_blocking(move || backup::decrypt(&document, &passphrase)).await {
+        Ok(Ok(t)) => t,
+        Ok(Err(e)) => return backup_error(e).into_response(),
+        Err(e) => return ApiError::internal_logged("Backup decryption failed", e).into_response(),
     };
 
-    for table in tables.iter() {
-        if let Some(rows_data) = payload.data.get(*table) {
-            let delete_query = format!("DELETE FROM {}", table);
-            if let Err(e) = sqlx::query(&delete_query).execute(&mut *tx).await {
-                let _ = tx.rollback().await;
-                return ApiError::internal_logged(&format!("Failed to clear table {}", table), e).into_response();
-            }
-
-            let insert_query = format!(
-                "INSERT INTO {} SELECT * FROM json_populate_record(null::{}, $1::json)",
-                table, table
-            );
-            for row in rows_data {
-                if let Err(e) = sqlx::query(&insert_query).bind(row).execute(&mut *tx).await {
-                    let _ = tx.rollback().await;
-                    return ApiError::internal_logged(&format!("Failed to insert row into {}", table), e).into_response();
+    // Lock-out check: the current user must keep restore access with the backup's users, roles and policies.
+    let lockout = |detail: &str| {
+        ApiError::new(StatusCode::CONFLICT, "RESTORE_LOCKOUT", "Conflict", format!("Restore rejected: {}", detail)).into_response()
+    };
+    let roles = match backup::user_assignment(&tables, &auth.username) {
+        UserAssignment::Missing => return lockout(&format!("user {} is not contained in the backup.", auth.username)),
+        UserAssignment::Inactive => return lockout(&format!("user {} is inactive in the backup.", auth.username)),
+        UserAssignment::NoRoles => backup::role_names(&tables, &[]),
+        UserAssignment::Encrypted { wrapped_dek, nonce, encrypted_roles } => {
+            let socket_path = std::path::PathBuf::from(&state.config.socket_dir).join("mitm_scheduler.sock");
+            match crate::ipc_client::crypto_decrypt(wrapped_dek, nonce, encrypted_roles, &socket_path).await {
+                Ok(plaintext) => backup::role_names(&tables, &serde_json::from_slice::<Vec<i32>>(&plaintext).unwrap_or_default()),
+                Err(e) => {
+                    log::error!("Restore: cannot decrypt the role assignment of {}: {}", auth.username, e);
+                    return ApiError::service_unavailable("Cannot verify the role assignment in the backup (scheduler crypto unavailable).")
+                        .into_response();
                 }
             }
         }
+    };
+    let allowed = if tables.contains_key("casbin_rule") {
+        match backup::policies_allow(&tables, &roles, "/api/v1/system/restore", "POST").await {
+            Ok(a) => a,
+            Err(e) => return ApiError::internal_logged("Restore: cannot evaluate the backup's RBAC policies", e).into_response(),
+        }
+    } else {
+        use casbin::CoreApi;
+        let enforcer = state.enforcer.read().await;
+        roles.iter().any(|r| enforcer.enforce((r.as_str(), "/api/v1/system/restore", "POST")).unwrap_or(false))
+    };
+    if !allowed {
+        return lockout(&format!("with the backup's roles ({}) user {} could no longer restore.", roles.join(", "), auth.username));
     }
 
+    let repo = state.repo.get().unwrap();
+    let mut tx = match repo.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => return ApiError::internal_logged("Database Error", e).into_response(),
+    };
+    let report = match backup::restore_tables(&mut tx, &tables).await {
+        Ok(r) => r,
+        Err(e) => return ApiError::internal_logged(&format!("Restore failed at table {}", e.table), e.error).into_response(),
+    };
     if let Err(e) = tx.commit().await {
         return ApiError::internal_logged("Failed to commit transaction", e).into_response();
     }
 
-    state.repo.get().unwrap().audit(&auth.username, crate::audit::action::RESTORE_CONFIG, serde_json::json!({})).await;
+    {
+        use casbin::CoreApi;
+        if let Err(e) = state.enforcer.write().await.load_policy().await {
+            log::error!("Restore: reloading the RBAC policies failed: {}", e);
+        }
+    }
+    let scheduler_reloaded = crate::handlers::jobs::send_scheduler_ipc(mitm_common::ipc::SchedulerRequest::UpdateJobs, &state.config.socket_dir)
+        .await
+        .map_err(|e| log::warn!("Restore: scheduler reload failed: {}", e))
+        .is_ok();
 
-    ApiResponse::updated("Configuration restored", None).into_response()
+    repo.audit(
+        &auth.username,
+        crate::audit::action::RESTORE_CONFIG,
+        serde_json::json!({
+            "format": backup::FORMAT,
+            "tables": report.tables,
+            "deactivated_programs": report.deactivated_programs,
+            "scheduler_reloaded": scheduler_reloaded,
+        }),
+    )
+    .await;
+
+    ApiResponse::updated(
+        "Configuration restored",
+        Some(serde_json::json!({
+            "tables": report.tables,
+            "deactivated_programs": report.deactivated_programs,
+            "scheduler_reloaded": scheduler_reloaded,
+        })),
+    )
+    .into_response()
 }
 
 #[derive(Deserialize)]

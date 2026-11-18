@@ -9,6 +9,7 @@ use axum::extract::State;
 
 
 pub mod admin;
+pub mod backup;
 pub mod jobs;
 pub mod rbac;
 pub mod logs;
@@ -16,6 +17,24 @@ pub mod api_v1;
 pub mod dlq;
 pub mod transformation;
 pub mod response;
+
+/// Casbin RBAC model shared by the enforcer and the restore lock-out check.
+pub const RBAC_MODEL: &str = "
+[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[role_definition]
+g = _, _
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = g(r.sub, p.sub) && (keyMatch(r.obj, p.obj) || keyMatch2(r.obj, p.obj) || r.obj == p.obj) && (p.act == \".*\" || r.act == p.act || regexMatch(r.act, p.act))
+";
 
 #[derive(Clone)]
 pub struct AppState {
